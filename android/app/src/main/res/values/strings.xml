@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Solo NEET SS</string>
+    <string name="title_activity_main">Solo NEET SS</string>
+    <string name="package_name">com.soloneet.ss</string>
+    <string name="custom_url_scheme">com.soloneet.ss</string>
+</resources>
