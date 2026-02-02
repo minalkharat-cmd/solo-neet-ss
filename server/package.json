@@ -1,0 +1,21 @@
+{
+    "name": "solo-neet-ss-server",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "node --watch index.js"
+    },
+    "dependencies": {
+        "bcryptjs": "^2.4.3",
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.3",
+        "express": "^4.18.2",
+        "express-session": "^1.19.0",
+        "jsonwebtoken": "^9.0.2",
+        "lowdb": "^7.0.1",
+        "passport": "^0.7.0",
+        "passport-google-oauth20": "^2.0.0",
+        "socket.io": "^4.8.3"
+    }
+}

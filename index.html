@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#7B68EE" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NEET SS" />
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    
+    <!-- SEO -->
+    <title>Solo NEET SS - Super-Specialty Medical Education</title>
+    <meta name="description" content="Master Super-Specialty medicine with Solo Leveling-inspired gamified education. Rise through the ranks as a Medical Hunter!" />
+    <meta name="keywords" content="NEET SS, Super Specialty, Medical Education, MCQ, Cardiology, Neurology, Medical Exam" />
+    
+    <!-- Open Graph -->
+    <meta property="og:title" content="Solo NEET SS" />
+    <meta property="og:description" content="Gamified Super-Specialty medical education" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/icons/icon-512x512.png" />
+    
+    <!-- Preconnect to API -->
+    <link rel="preconnect" href="http://localhost:3002" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('🔧 SW registered:', registration.scope);
+            })
+            .catch((error) => {
+              console.log('❌ SW registration failed:', error);
+            });
+        });
+      }
+      
+      // PWA Install Prompt
+      let deferredPrompt;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        // Show install button in UI
+        window.dispatchEvent(new CustomEvent('pwa-installable', { detail: e }));
+      });
+    </script>
+  </body>
+</html>
