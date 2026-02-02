@@ -191,13 +191,25 @@ app.get('/api/auth/google/callback',
     }),
     (req, res) => {
         const token = jwt.sign({ userId: req.user.id }, JWT_SECRET, { expiresIn: '7d' });
-        res.redirect(`${FRONTEND_URL}?token=${token}&user=${encodeURIComponent(JSON.stringify({
+        const userParam = encodeURIComponent(JSON.stringify({
             id: req.user.id,
             username: req.user.username,
             email: req.user.email,
             hunterName: req.user.hunterName,
             avatar: req.user.avatar
-        }))}`);
+        }));
+
+        // Check if request is from mobile app (Android/iOS)
+        const userAgent = req.headers['user-agent'] || '';
+        const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+
+        if (isMobile) {
+            // Redirect to custom URL scheme for mobile app
+            res.redirect(`com.soloneet.ss://oauth?token=${token}&user=${userParam}`);
+        } else {
+            // Normal web redirect
+            res.redirect(`${FRONTEND_URL}?token=${token}&user=${userParam}`);
+        }
     }
 );
 
