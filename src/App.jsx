@@ -12,6 +12,7 @@ import { Leaderboard } from './components/Leaderboard';
 import { LoginGate } from './components/LoginGate';
 import { PvPBattle } from './components/PvPBattle';
 import { ReviewDashboard } from './components/ReviewDashboard';
+import { PremiumModal } from './components/PremiumModal';
 import { setToken, getToken, getMe, saveProgress, logout } from './services/api';
 import './index.css';
 
@@ -552,6 +553,8 @@ function App() {
   const [showPvP, setShowPvP] = useState(false);
   const [showReviewDashboard, setShowReviewDashboard] = useState(false);
   const [showDungeonBreak, setShowDungeonBreak] = useState(false);
+  const [showPremium, setShowPremium] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastDailyRewardClaim, setLastDailyRewardClaim] = useState(() => {
     return localStorage.getItem('lastDailyRewardClaim') || '';
@@ -716,6 +719,14 @@ function App() {
           )}
         </div>
         <div className="nav-right">
+          {!isPremium && (
+            <button className="btn btn-accent upgrade-btn" onClick={() => setShowPremium(true)} title="Upgrade to Premium">
+              👑 Upgrade
+            </button>
+          )}
+          {isPremium && (
+            <span className="premium-badge-nav" title="Premium Active">👑</span>
+          )}
           <button className="btn-icon" onClick={() => setShowSettings(true)} title="Settings">⚙️</button>
         </div>
       </nav>
@@ -866,6 +877,14 @@ function App() {
         <AchievementNotification
           achievement={pendingAchievements[0]}
           onDismiss={dismissAchievement}
+        />
+      )}
+
+      {showPremium && (
+        <PremiumModal
+          user={user}
+          onClose={() => setShowPremium(false)}
+          onSuccess={() => setIsPremium(true)}
         />
       )}
     </div>
