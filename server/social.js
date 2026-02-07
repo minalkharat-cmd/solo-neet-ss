@@ -1,6 +1,8 @@
 // Solo NEET SS - Social Features (Groups + Challenges)
 const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
+import { sendChallengeNotification } from './pushSender.js';
+
 /**
  * Register social routes on the Express app
  */
@@ -109,6 +111,11 @@ export const registerSocialRoutes = (app, db, authMiddleware) => {
         challenge.opponentId = req.userId;
         challenge.status = 'active';
         await db.write();
+
+        // Push notify the challenge creator
+        const joiner = db.data.users.find(u => u.id === req.userId);
+        const joinerName = joiner?.hunterName || 'A Hunter';
+        sendChallengeNotification(db, challenge.creatorId, joinerName, challenge.subject).catch(() => { });
 
         res.json({
             challengeId: challenge.id,

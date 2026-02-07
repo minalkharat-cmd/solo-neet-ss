@@ -20,6 +20,7 @@ import { createOrder, verifyPayment, calculateSubscriptionEnd, PLANS, isConfigur
 import { getPersonalAnalytics, getEngagementMetrics } from './analytics.js';
 import { registerSocialRoutes } from './social.js';
 import { registerNotificationRoutes } from './notifications.js';
+import { initFirebaseAdmin, startNotificationScheduler, sendPushToUser } from './pushSender.js';
 
 // LLM Provider configuration (ollama or gemini)
 let llmProvider = process.env.LLM_PROVIDER || 'ollama';
@@ -1440,6 +1441,21 @@ registerSocialRoutes(app, db, authMiddleware);
 
 // ============ PUSH NOTIFICATIONS ============
 registerNotificationRoutes(app, db, authMiddleware);
+
+// Admin test push endpoint
+app.post('/api/notifications/test-push', authMiddleware, async (req, res) => {
+    const { title, body } = req.body;
+    const result = await sendPushToUser(db, req.userId, {
+        title: title || '🧪 Test Notification',
+        body: body || 'If you see this, push notifications are working!',
+        tag: 'test'
+    });
+    res.json(result);
+});
+
+// ============ INIT FIREBASE & START SCHEDULER ============
+initFirebaseAdmin();
+startNotificationScheduler(db);
 
 httpServer.listen(PORT, () => {
     console.log(`🏥 Solo NEET SS Server running on http://localhost:${PORT}`);
