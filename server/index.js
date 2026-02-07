@@ -19,6 +19,7 @@ import { getDueQuestions, getSRSStats, initSRSRecord, updateSRSRecord } from './
 import { createOrder, verifyPayment, calculateSubscriptionEnd, PLANS, isConfigured as isPaymentConfigured } from './payment.js';
 import { getPersonalAnalytics, getEngagementMetrics } from './analytics.js';
 import { registerSocialRoutes } from './social.js';
+import { registerNotificationRoutes } from './notifications.js';
 
 // LLM Provider configuration (ollama or gemini)
 let llmProvider = process.env.LLM_PROVIDER || 'ollama';
@@ -1436,6 +1437,9 @@ app.get('/api/analytics/engagement', async (req, res) => {
 
 // ============ SOCIAL FEATURES ============
 registerSocialRoutes(app, db, authMiddleware);
+
+// ============ PUSH NOTIFICATIONS ============
+registerNotificationRoutes(app, db, authMiddleware);
 
 httpServer.listen(PORT, () => {
     console.log(`🏥 Solo NEET SS Server running on http://localhost:${PORT}`);

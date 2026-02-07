@@ -15,6 +15,7 @@ import { ReviewDashboard } from './components/ReviewDashboard';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { StudyGroups } from './components/StudyGroups';
 import { ChallengeModal } from './components/ChallengeModal';
+import { NotificationBell } from './components/NotificationBell';
 import { PremiumModal } from './components/PremiumModal';
 import { setToken, getToken, getMe, saveProgress, logout } from './services/api';
 import './index.css';
@@ -709,6 +710,7 @@ function App() {
               <button className="btn-icon nav-btn" onClick={() => setShowAnalytics(true)} title="Analytics Dashboard">📊</button>
               <button className="btn-icon nav-btn" onClick={() => setShowStudyGroups(true)} title="Study Groups">👥</button>
               <button className="btn-icon nav-btn" onClick={() => setShowChallenge(true)} title="Challenge Friend">⚔️</button>
+              <NotificationBell />
             </>
           )}
         </div>
