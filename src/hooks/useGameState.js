@@ -211,16 +211,16 @@ export const useGameState = () => {
         }));
     }, []);
 
-    // Use wheel spin
-    const useWheelSpin = useCallback(() => {
+    // Consume wheel spin
+    const consumeWheelSpin = useCallback(() => {
         setGameState((prev) => ({
             ...prev,
             wheelSpins: Math.max(0, prev.wheelSpins - 1),
         }));
     }, []);
 
-    // Use mystery box
-    const useMysteryBox = useCallback(() => {
+    // Consume mystery box
+    const consumeMysteryBox = useCallback(() => {
         setGameState((prev) => ({
             ...prev,
             mysteryBoxes: Math.max(0, prev.mysteryBoxes - 1),
@@ -280,8 +280,8 @@ export const useGameState = () => {
         addXP,
         recordAnswer,
         completeDungeon,
-        useWheelSpin,
-        useMysteryBox,
+        consumeWheelSpin,
+        consumeMysteryBox,
         addMysteryBoxes,
         setXPMultiplier,
         getAccuracy,

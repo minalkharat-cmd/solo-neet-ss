@@ -31,9 +31,22 @@ const PORT = process.env.PORT || 3002;
 const JWT_SECRET = process.env.JWT_SECRET || 'solo-neet-ss-secret-key-2026';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-// Google OAuth Config
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID';
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET';
+// Google OAuth Config — validated at startup
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || `http://localhost:${PORT}/api/auth/google/callback`;
+
+// Validate OAuth credentials in production
+const isProduction = process.env.NODE_ENV === 'production';
+if (isProduction && (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET)) {
+    console.error('CRITICAL: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in production!');
+    console.error('Google OAuth will be DISABLED until these environment variables are configured on Render.');
+}
+
+// Diagnostic log
+console.log(`🔐 Google OAuth: ${GOOGLE_CLIENT_ID ? 'Configured' : 'NOT CONFIGURED (placeholder)'}`);
+console.log(`   Callback URL: ${GOOGLE_CALLBACK_URL}`);
+console.log(`   Frontend URL: ${FRONTEND_URL}`);
 
 // Initialize JSON database
 const defaultData = { users: [], progress: [], leaderboard: [], generatedQuestions: [] };
@@ -44,10 +57,26 @@ await db.read();
 db.data ||= defaultData;
 await db.write();
 
+// CORS: allow both localhost and production origins
+const allowedOrigins = [FRONTEND_URL];
+if (isProduction && FRONTEND_URL !== 'http://localhost:5173') {
+    allowedOrigins.push('http://localhost:5173');
+} else if (!isProduction) {
+    allowedOrigins.push('https://solo-neet-ss.vercel.app');
+}
+
 app.use(cors({
-    origin: FRONTEND_URL,
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(null, false);
+        }
+    },
     credentials: true
 }));
+
 app.use(express.json());
 app.use(passport.initialize());
 
@@ -122,44 +151,50 @@ const createUserWithProgress = async (userData) => {
 
 // ============ GOOGLE OAUTH SETUP ============
 
-passport.use(new GoogleStrategy({
-    clientID: GOOGLE_CLIENT_ID,
-    clientSecret: GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.GOOGLE_CALLBACK_URL || `http://localhost:${PORT}/api/auth/google/callback`
-},
-    async (accessToken, refreshToken, profile, done) => {
-        try {
-            await db.read();
+const googleOAuthEnabled = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
 
-            let user = db.data.users.find(u => u.googleId === profile.id);
+if (googleOAuthEnabled) {
+    passport.use(new GoogleStrategy({
+        clientID: GOOGLE_CLIENT_ID,
+        clientSecret: GOOGLE_CLIENT_SECRET,
+        callbackURL: GOOGLE_CALLBACK_URL
+    },
+        async (accessToken, refreshToken, profile, done) => {
+            try {
+                await db.read();
 
-            if (!user) {
-                const email = profile.emails?.[0]?.value;
-                user = db.data.users.find(u => u.email === email);
+                let user = db.data.users.find(u => u.googleId === profile.id);
 
-                if (user) {
-                    user.googleId = profile.id;
-                    user.avatar = profile.photos?.[0]?.value;
-                    await db.write();
-                } else {
-                    const username = profile.displayName?.replace(/\s+/g, '_').toLowerCase() || `hunter_${generateId().slice(0, 6)}`;
-                    user = await createUserWithProgress({
-                        username,
-                        email,
-                        googleId: profile.id,
-                        hunterName: profile.displayName || 'Hunter',
-                        avatar: profile.photos?.[0]?.value,
-                        password: null
-                    });
+                if (!user) {
+                    const email = profile.emails?.[0]?.value;
+                    user = db.data.users.find(u => u.email === email);
+
+                    if (user) {
+                        user.googleId = profile.id;
+                        user.avatar = profile.photos?.[0]?.value;
+                        await db.write();
+                    } else {
+                        const username = profile.displayName?.replace(/\s+/g, '_').toLowerCase() || `hunter_${generateId().slice(0, 6)}`;
+                        user = await createUserWithProgress({
+                            username,
+                            email,
+                            googleId: profile.id,
+                            hunterName: profile.displayName || 'Hunter',
+                            avatar: profile.photos?.[0]?.value,
+                            password: null
+                        });
+                    }
                 }
-            }
 
-            done(null, user);
-        } catch (err) {
-            done(err, null);
+                done(null, user);
+            } catch (err) {
+                done(err, null);
+            }
         }
-    }
-));
+    ));
+} else {
+    console.warn('⚠️  Google OAuth DISABLED — GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set.');
+}
 
 // Auth middleware
 const authMiddleware = (req, res, next) => {
@@ -178,41 +213,48 @@ const authMiddleware = (req, res, next) => {
 
 // ============ AUTH ROUTES ============
 
-app.get('/api/auth/google',
-    passport.authenticate('google', {
-        scope: ['profile', 'email'],
-        session: false
-    })
-);
+if (googleOAuthEnabled) {
+    app.get('/api/auth/google',
+        passport.authenticate('google', {
+            scope: ['profile', 'email'],
+            session: false
+        })
+    );
 
-app.get('/api/auth/google/callback',
-    passport.authenticate('google', {
-        session: false,
-        failureRedirect: `${FRONTEND_URL}?auth=failed`
-    }),
-    (req, res) => {
-        const token = jwt.sign({ userId: req.user.id }, JWT_SECRET, { expiresIn: '7d' });
-        const userParam = encodeURIComponent(JSON.stringify({
-            id: req.user.id,
-            username: req.user.username,
-            email: req.user.email,
-            hunterName: req.user.hunterName,
-            avatar: req.user.avatar
-        }));
+    app.get('/api/auth/google/callback',
+        passport.authenticate('google', {
+            session: false,
+            failureRedirect: `${FRONTEND_URL}?auth=failed`
+        }),
+        (req, res) => {
+            const token = jwt.sign({ userId: req.user.id }, JWT_SECRET, { expiresIn: '7d' });
+            const userParam = encodeURIComponent(JSON.stringify({
+                id: req.user.id,
+                username: req.user.username,
+                email: req.user.email,
+                hunterName: req.user.hunterName,
+                avatar: req.user.avatar
+            }));
 
-        // Check if request is from mobile app (Android/iOS)
-        const userAgent = req.headers['user-agent'] || '';
-        const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+            // Check if request is from mobile app (Android/iOS)
+            const userAgent = req.headers['user-agent'] || '';
+            const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
 
-        if (isMobile) {
-            // Redirect to custom URL scheme for mobile app
-            res.redirect(`com.soloneet.ss://oauth?token=${token}&user=${userParam}`);
-        } else {
-            // Normal web redirect
-            res.redirect(`${FRONTEND_URL}?token=${token}&user=${userParam}`);
+            if (isMobile) {
+                // Redirect to custom URL scheme for mobile app
+                res.redirect(`com.soloneet.ss://oauth?token=${token}&user=${userParam}`);
+            } else {
+                // Normal web redirect
+                res.redirect(`${FRONTEND_URL}?token=${token}&user=${userParam}`);
+            }
         }
-    }
-);
+    );
+} else {
+    // Return helpful error when Google OAuth is not configured
+    app.get('/api/auth/google', (req, res) => {
+        res.status(503).json({ error: 'Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.' });
+    });
+}
 
 app.post('/api/auth/register', async (req, res) => {
     try {
@@ -708,7 +750,7 @@ app.get('/api/pvp/status', async (req, res) => {
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
-        origin: FRONTEND_URL,
+        origin: allowedOrigins,
         methods: ['GET', 'POST'],
         credentials: true
     }

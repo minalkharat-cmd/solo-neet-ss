@@ -436,8 +436,8 @@ function App() {
     addXP,
     recordAnswer,
     completeDungeon,
-    useWheelSpin,
-    useMysteryBox,
+    consumeWheelSpin,
+    consumeMysteryBox,
     addMysteryBoxes,
     setXPMultiplier,
     getAccuracy,
@@ -623,7 +623,7 @@ function App() {
 
   // Spin wheel reward
   const handleSpinReward = (prize) => {
-    useWheelSpin();
+    consumeWheelSpin();
     if (prize.type === 'xp') {
       addXP(prize.amount);
     } else if (prize.type === 'box') {
@@ -636,7 +636,7 @@ function App() {
 
   // Mystery box reward
   const handleMysteryBoxReward = (prize) => {
-    useMysteryBox();
+    consumeMysteryBox();
     if (prize.type === 'xp') {
       addXP(prize.amount);
     } else if (prize.type === 'multiplier') {
