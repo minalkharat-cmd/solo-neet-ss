@@ -25,9 +25,26 @@ export const initFirebaseAdmin = () => {
         let serviceAccount = null;
 
         // 1. Try env var first (production)
-        if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-            serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-            console.log('🔑 Firebase key loaded from env var');
+        const envJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+        if (envJson) {
+            console.log(`🔑 Env var FIREBASE_SERVICE_ACCOUNT_JSON found (${envJson.length} chars)`);
+            try {
+                // Handle potential wrapping in extra quotes
+                let cleaned = envJson.trim();
+                if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
+                    cleaned = cleaned.slice(1, -1);
+                }
+                serviceAccount = JSON.parse(cleaned);
+                // Fix double-escaped newlines in private_key
+                if (serviceAccount.private_key) {
+                    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+                }
+                console.log(`🔑 Firebase key parsed — project: ${serviceAccount.project_id}`);
+            } catch (parseErr) {
+                console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', parseErr.message);
+                console.error('   First 100 chars:', envJson.substring(0, 100));
+                return;
+            }
         } else {
             // 2. Try local file (development)
             try {
