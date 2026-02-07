@@ -12,6 +12,9 @@ import { Leaderboard } from './components/Leaderboard';
 import { LoginGate } from './components/LoginGate';
 import { PvPBattle } from './components/PvPBattle';
 import { ReviewDashboard } from './components/ReviewDashboard';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
+import { StudyGroups } from './components/StudyGroups';
+import { ChallengeModal } from './components/ChallengeModal';
 import { PremiumModal } from './components/PremiumModal';
 import { setToken, getToken, getMe, saveProgress, logout } from './services/api';
 import './index.css';
@@ -552,6 +555,9 @@ function App() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showPvP, setShowPvP] = useState(false);
   const [showReviewDashboard, setShowReviewDashboard] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showStudyGroups, setShowStudyGroups] = useState(false);
+  const [showChallenge, setShowChallenge] = useState(false);
   const [showDungeonBreak, setShowDungeonBreak] = useState(false);
   const [showPremium, setShowPremium] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
@@ -700,6 +706,9 @@ function App() {
               <button className="btn-icon nav-btn" onClick={() => setShowDashboard(true)} title="Dashboard">📊</button>
               <button className="btn-icon nav-btn" onClick={() => setShowPvP(true)} title="PvP Battles">⚔️</button>
               <button className="btn-icon nav-btn" onClick={() => setShowReviewDashboard(true)} title="Review AI Questions">📋</button>
+              <button className="btn-icon nav-btn" onClick={() => setShowAnalytics(true)} title="Analytics Dashboard">📊</button>
+              <button className="btn-icon nav-btn" onClick={() => setShowStudyGroups(true)} title="Study Groups">👥</button>
+              <button className="btn-icon nav-btn" onClick={() => setShowChallenge(true)} title="Challenge Friend">⚔️</button>
             </>
           )}
         </div>
@@ -858,6 +867,15 @@ function App() {
 
       {showReviewDashboard && (
         <ReviewDashboard onClose={() => setShowReviewDashboard(false)} />
+      )}
+      {showAnalytics && (
+        <AnalyticsDashboard onClose={() => setShowAnalytics(false)} />
+      )}
+      {showStudyGroups && (
+        <StudyGroups onClose={() => setShowStudyGroups(false)} userId={user?.id} />
+      )}
+      {showChallenge && (
+        <ChallengeModal onClose={() => setShowChallenge(false)} />
       )}
 
       {showDungeonBreak && (

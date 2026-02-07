@@ -17,6 +17,8 @@ import { generateQuestionsFromArticles as generateWithOllama, checkOllamaStatus 
 import { initBackgroundGenerator } from './backgroundGenerator.js';
 import { getDueQuestions, getSRSStats, initSRSRecord, updateSRSRecord } from './srs.js';
 import { createOrder, verifyPayment, calculateSubscriptionEnd, PLANS, isConfigured as isPaymentConfigured } from './payment.js';
+import { getPersonalAnalytics, getEngagementMetrics } from './analytics.js';
+import { registerSocialRoutes } from './social.js';
 
 // LLM Provider configuration (ollama or gemini)
 let llmProvider = process.env.LLM_PROVIDER || 'ollama';
@@ -1405,6 +1407,36 @@ setInterval(() => {
 }, 60000);
 
 // Start server
+// ============ ANALYTICS ROUTES ============
+
+app.get('/api/analytics/personal', authMiddleware, async (req, res) => {
+    try {
+        await db.read();
+        const analytics = getPersonalAnalytics(db, req.userId);
+        if (!analytics) {
+            return res.status(404).json({ error: 'No analytics data found' });
+        }
+        res.json(analytics);
+    } catch (error) {
+        console.error('Analytics error:', error);
+        res.status(500).json({ error: 'Failed to fetch analytics' });
+    }
+});
+
+app.get('/api/analytics/engagement', async (req, res) => {
+    try {
+        await db.read();
+        const metrics = getEngagementMetrics(db);
+        res.json(metrics);
+    } catch (error) {
+        console.error('Engagement metrics error:', error);
+        res.status(500).json({ error: 'Failed to fetch engagement metrics' });
+    }
+});
+
+// ============ SOCIAL FEATURES ============
+registerSocialRoutes(app, db, authMiddleware);
+
 httpServer.listen(PORT, () => {
     console.log(`🏥 Solo NEET SS Server running on http://localhost:${PORT}`);
     console.log('📊 Database: db.json');
