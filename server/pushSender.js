@@ -5,20 +5,43 @@
 //         of the service account key downloaded from Firebase Console.
 
 import admin from 'firebase-admin';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 let fcmEnabled = false;
 
 /**
  * Initialize Firebase Admin SDK
+ * Supports:
+ *   1. FIREBASE_SERVICE_ACCOUNT_JSON env var (JSON string — for Render/production)
+ *   2. Local file: server/firebase-service-account.json (for local dev)
  */
 export const initFirebaseAdmin = () => {
     try {
-        const serviceAccountJSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-        if (!serviceAccountJSON) {
-            console.log('⚠️  FIREBASE_SERVICE_ACCOUNT_JSON not set — push notifications disabled');
-            return;
+        let serviceAccount = null;
+
+        // 1. Try env var first (production)
+        if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+            serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+            console.log('🔑 Firebase key loaded from env var');
+        } else {
+            // 2. Try local file (development)
+            try {
+                const keyPath = join(__dirname, 'firebase-service-account.json');
+                const raw = readFileSync(keyPath, 'utf-8');
+                serviceAccount = JSON.parse(raw);
+                console.log('🔑 Firebase key loaded from local file');
+            } catch {
+                console.log('⚠️  No Firebase service account key found — push notifications disabled');
+                console.log('   Set FIREBASE_SERVICE_ACCOUNT_JSON env var or create server/firebase-service-account.json');
+                return;
+            }
         }
-        const serviceAccount = JSON.parse(serviceAccountJSON);
+
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
         });

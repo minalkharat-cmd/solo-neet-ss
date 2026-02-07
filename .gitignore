@@ -29,5 +29,10 @@ dist-ssr
 server/.env
 server/.env.production
 
+# Firebase service account key (SENSITIVE)
+server/firebase-service-account.json
+*-firebase-adminsdk-*.json
+
 # Server database
 server/db.json
+firebase-key-oneline.txt
