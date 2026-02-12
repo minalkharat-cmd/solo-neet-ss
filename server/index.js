@@ -597,7 +597,8 @@ app.post('/api/pubmed/search', authMiddleware, async (req, res) => {
         });
     } catch (error) {
         console.error('PubMed search error:', error);
-        res.status(500).json({ error: 'Failed to search PubMed: ' + error.message });
+        console.error('PubMed search error:', error);
+        res.status(500).json({ error: 'Failed to search PubMed' });
     }
 });
 
@@ -653,7 +654,8 @@ app.post('/api/pubmed/generate', authMiddleware, async (req, res) => {
         });
     } catch (error) {
         console.error('Question generation error:', error);
-        res.status(500).json({ error: 'Failed to generate questions: ' + error.message });
+        console.error('Question generation error:', error);
+        res.status(500).json({ error: 'Failed to generate questions' });
     }
 });
 
@@ -859,6 +861,21 @@ const io = new Server(httpServer, {
         origin: allowedOrigins,
         methods: ['GET', 'POST'],
         credentials: true
+    }
+});
+
+// Socket.io JWT authentication middleware
+io.use((socket, next) => {
+    const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+    if (!token) {
+        return next(new Error('Authentication required'));
+    }
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        socket.userId = decoded.userId;
+        next();
+    } catch (err) {
+        return next(new Error('Invalid token'));
     }
 });
 
@@ -1164,10 +1181,19 @@ const generateRoomCode = () => {
     return code;
 };
 
+// Fisher-Yates shuffle — unbiased
+const fisherYatesShuffle = (arr) => {
+    const shuffled = [...arr];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+};
+
 // Get random questions for battle
 const getBattleQuestions = (count = 10) => {
-    const shuffled = [...battleQuestions].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count);
+    return fisherYatesShuffle(battleQuestions).slice(0, count);
 };
 
 // Create a new battle room
@@ -1193,19 +1219,23 @@ const createBattleRoom = (player1, player2, isRanked = true) => {
 };
 
 // Socket.io connection handling
-io.on('connection', (socket) => {
-    console.log(`🎮 SS Hunter connected: ${socket.id}`);
+io.on('connection', async (socket) => {
+    console.log(`🎮 SS Hunter connected: ${socket.id} (user: ${socket.userId})`);
 
-    socket.on('register', (userData) => {
+    // Load verified user data from database on register
+    socket.on('register', async (userData) => {
+        await db.read();
+        const dbUser = db.data.users.find(u => u.id === socket.userId);
         playerSockets[socket.id] = {
             id: socket.id,
-            odid: userData.odid,
-            username: userData.username,
-            hunterName: userData.hunterName || userData.username,
-            level: userData.level || 1,
-            avatar: userData.avatar
+            odid: socket.userId,
+            // Use DB username as source of truth, fall back to client data
+            username: dbUser?.username || sanitizeInput(userData.username, 30) || 'Hunter',
+            hunterName: dbUser?.hunterName || sanitizeInput(userData.hunterName, 50) || 'Hunter',
+            level: dbUser ? (db.data.progress.find(p => p.userId === socket.userId)?.level || 1) : 1,
+            avatar: dbUser?.avatar || null
         };
-        console.log(`✅ SS Registered: ${userData.username}`);
+        console.log(`✅ SS Registered: ${playerSockets[socket.id].username}`);
     });
 
     socket.on('joinQueue', () => {
@@ -1500,12 +1530,29 @@ const endBattle = (roomId) => {
     }, 30000);
 };
 
-// Clean up old private rooms periodically
+// Periodic cleanup of stale state to prevent memory leaks
 setInterval(() => {
     const now = Date.now();
+
+    // Clean up old private rooms (5 min TTL)
     Object.keys(privateRooms).forEach(code => {
         if (now - privateRooms[code].createdAt > 5 * 60 * 1000) {
             delete privateRooms[code];
+        }
+    });
+
+    // Clean up finished/stale battle rooms (10 min TTL)
+    Object.keys(battleRooms).forEach(roomId => {
+        const room = battleRooms[roomId];
+        if (room.finished && now - (room.finishedAt || room.startedAt) > 10 * 60 * 1000) {
+            delete battleRooms[roomId];
+        }
+    });
+
+    // Clean up orphaned playerSockets (no matching active socket)
+    Object.keys(playerSockets).forEach(socketId => {
+        if (!io.sockets.sockets.get(socketId)) {
+            delete playerSockets[socketId];
         }
     });
 }, 60000);

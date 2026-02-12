@@ -18,6 +18,7 @@ import { ChallengeModal } from './components/ChallengeModal';
 import { NotificationBell } from './components/NotificationBell';
 import { PremiumModal } from './components/PremiumModal';
 import { setToken, getToken, getMe, saveProgress, logout } from './services/api';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
 // ============================================
@@ -596,7 +597,13 @@ function App() {
 
   const handleEnterDungeon = (subject) => {
     const subjectQuestions = questions[subject.id] || [];
-    const shuffled = [...subjectQuestions].sort(() => Math.random() - 0.5).slice(0, 10);
+    // Fisher-Yates shuffle for unbiased randomization
+    const arr = [...subjectQuestions];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    const shuffled = arr.slice(0, 10);
     setBattleQuestions(shuffled);
     setSelectedSubject(subject);
     setCurrentView('battle');
@@ -877,13 +884,15 @@ function App() {
       )}
 
       {showPvP && (
-        <PvPBattle
-          user={user}
-          gameState={gameState}
-          onClose={() => setShowPvP(false)}
-          soundEnabled={soundEnabled}
-          addXP={addXP}
-        />
+        <ErrorBoundary fallbackMessage="PvP Battle encountered an error. Please try again.">
+          <PvPBattle
+            user={user}
+            gameState={gameState}
+            onClose={() => setShowPvP(false)}
+            soundEnabled={soundEnabled}
+            addXP={addXP}
+          />
+        </ErrorBoundary>
       )}
 
       {showReviewDashboard && (

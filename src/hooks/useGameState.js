@@ -24,6 +24,7 @@ const initialState = {
     loginStreak: 0,
     lastLogin: null,
     xpMultiplier: 1,
+    xpMultiplierExpiry: null, // ISO timestamp when multiplier expires
     studyTime: 0,
     mysteryBoxes: 3,
     wheelSpins: 1,
@@ -58,6 +59,25 @@ export const useGameState = () => {
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
     }, [gameState]);
+
+    // Check and expire XP multiplier (persists across reloads)
+    useEffect(() => {
+        if (!gameState.xpMultiplierExpiry || gameState.xpMultiplier === 1) return;
+
+        const expiryTime = new Date(gameState.xpMultiplierExpiry).getTime();
+        const remaining = expiryTime - Date.now();
+
+        if (remaining <= 0) {
+            // Already expired — reset immediately
+            setGameState((prev) => ({ ...prev, xpMultiplier: 1, xpMultiplierExpiry: null }));
+        } else {
+            // Set timer for remaining duration
+            const timer = setTimeout(() => {
+                setGameState((prev) => ({ ...prev, xpMultiplier: 1, xpMultiplierExpiry: null }));
+            }, remaining);
+            return () => clearTimeout(timer);
+        }
+    }, [gameState.xpMultiplierExpiry, gameState.xpMultiplier]);
 
     // Check achievements
     const checkAchievements = useCallback((state) => {
@@ -227,21 +247,14 @@ export const useGameState = () => {
         }));
     }, []);
 
-    // Set XP multiplier
+    // Set XP multiplier with persistent expiry
     const setXPMultiplier = useCallback((multiplier, duration = 0) => {
+        const expiry = duration > 0 ? new Date(Date.now() + duration).toISOString() : null;
         setGameState((prev) => ({
             ...prev,
             xpMultiplier: multiplier,
+            xpMultiplierExpiry: expiry,
         }));
-
-        if (duration > 0) {
-            setTimeout(() => {
-                setGameState((prev) => ({
-                    ...prev,
-                    xpMultiplier: 1,
-                }));
-            }, duration);
-        }
     }, []);
 
     // Dismiss level up

@@ -312,10 +312,12 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Reset daily stats at midnight
+// Reset daily stats at midnight — tracks last reset date to avoid missed windows
+let lastResetDate = new Date().toDateString();
 setInterval(() => {
-    const now = new Date();
-    if (now.getHours() === 0 && now.getMinutes() === 0) {
+    const today = new Date().toDateString();
+    if (today !== lastResetDate) {
+        lastResetDate = today;
         stats.questionsToday = 0;
         console.log('🌅 Daily question stats reset');
     }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
+import { getToken } from '../services/api';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
@@ -35,11 +36,24 @@ export function PvPBattle({ user, gameState, onClose, soundEnabled, addXP }) {
     // Result state
     const [battleResult, setBattleResult] = useState(null);
 
-    // Initialize socket connection
+    // Initialize socket connection — stable deps to avoid reconnection loops
+    const userId = user?.id;
+    const username = user?.username;
+    const hunterName = user?.hunterName;
+    const userAvatar = user?.avatar;
+    const playerLevel = gameState.level;
+
     useEffect(() => {
+        const token = getToken();
+        if (!token) {
+            setError('Authentication required for PvP');
+            return;
+        }
+
         socketRef.current = io(SOCKET_URL, {
             withCredentials: true,
-            transports: ['websocket', 'polling']
+            transports: ['websocket', 'polling'],
+            auth: { token }
         });
 
         const socket = socketRef.current;
@@ -47,13 +61,12 @@ export function PvPBattle({ user, gameState, onClose, soundEnabled, addXP }) {
         socket.on('connect', () => {
             setConnected(true);
             setError(null);
-            // Register user data
+            // Register user display data (identity verified server-side via JWT)
             socket.emit('register', {
-                odid: user?.id || 'anonymous',
-                username: user?.username || 'Hunter',
-                hunterName: user?.hunterName || 'Hunter',
-                level: gameState.level,
-                avatar: user?.avatar
+                username: username || 'Hunter',
+                hunterName: hunterName || 'Hunter',
+                level: playerLevel,
+                avatar: userAvatar
             });
         });
 
@@ -62,7 +75,7 @@ export function PvPBattle({ user, gameState, onClose, soundEnabled, addXP }) {
         });
 
         socket.on('connect_error', (err) => {
-            setError('Could not connect to server');
+            setError(err.message === 'Authentication required' ? 'Please log in to access PvP' : 'Could not connect to server');
             console.error('Socket connection error:', err);
         });
 
@@ -159,7 +172,7 @@ export function PvPBattle({ user, gameState, onClose, soundEnabled, addXP }) {
         return () => {
             socket.disconnect();
         };
-    }, [user, gameState.level]);
+    }, [userId]); // Only reconnect if actual user identity changes
 
     // Timer logic
     useEffect(() => {
