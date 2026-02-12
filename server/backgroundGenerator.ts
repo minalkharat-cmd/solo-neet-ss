@@ -4,9 +4,10 @@
 import { searchAndFetchAbstracts } from './pubmed.js';
 import { generateQuestionsFromArticles } from './questionGenerator.js';
 import logger from './lib/logger.js';
+import type { DAL, BackgroundGenerator, GeneratorStats, PubMedArticle, GenerationResult } from './types.js';
 
 // Topics to monitor for each specialty - high-yield NEET SS topics
-const SPECIALTY_TOPICS = {
+const SPECIALTY_TOPICS: Record<string, string[]> = {
     cardiology: [
         'acute coronary syndrome management 2024',
         'heart failure treatment guidelines',
@@ -150,12 +151,12 @@ const SPECIALTY_TOPICS = {
 };
 
 // Track processed PMIDs to avoid duplicates
-let processedPmids = new Set();
+let processedPmids: Set<string> = new Set();
 
 // Generator state
-let isRunning = false;
-let lastRunTime = null;
-let stats = {
+let isRunning: boolean = false;
+let lastRunTime: string | null = null;
+let stats: GeneratorStats = {
     totalGenerated: 0,
     totalErrors: 0,
     lastSpecialty: null,
@@ -166,7 +167,7 @@ let stats = {
  * Initialize the background generator
  * @param {object} dal — Data Access Layer
  */
-export function initBackgroundGenerator(dal, intervalMinutes = 30) {
+export function initBackgroundGenerator(dal: DAL, intervalMinutes: number = 30): BackgroundGenerator {
     logger.info('Background PubMed generator initialized', { intervalMinutes });
 
     loadProcessedPmids(dal);
@@ -186,7 +187,7 @@ export function initBackgroundGenerator(dal, intervalMinutes = 30) {
 /**
  * Load already processed PMIDs to avoid duplicates
  */
-async function loadProcessedPmids(dal) {
+async function loadProcessedPmids(dal: DAL): Promise<void> {
     processedPmids = await dal.generatedQuestions.getProcessedPmids();
     logger.info('Loaded previously processed PMIDs', { count: processedPmids.size });
 }
@@ -194,7 +195,7 @@ async function loadProcessedPmids(dal) {
 /**
  * Run a full generation cycle across all specialties
  */
-async function runGenerationCycle(dal) {
+async function runGenerationCycle(dal: DAL): Promise<void> {
     if (isRunning) {
         logger.info('Generation cycle already in progress, skipping');
         return;
@@ -209,19 +210,19 @@ async function runGenerationCycle(dal) {
     lastRunTime = new Date().toISOString();
     logger.info('Starting PubMed generation cycle', { startTime: lastRunTime });
 
-    const specialties = Object.keys(SPECIALTY_TOPICS);
-    let cycleGenerated = 0;
-    let cycleErrors = 0;
+    const specialties: string[] = Object.keys(SPECIALTY_TOPICS);
+    let cycleGenerated: number = 0;
+    let cycleErrors: number = 0;
 
     for (const specialty of specialties) {
         try {
-            const result = await generateForSpecialty(dal, specialty);
+            const result: { generated: number; errors: number } = await generateForSpecialty(dal, specialty);
             cycleGenerated += result.generated;
             cycleErrors += result.errors;
             stats.lastSpecialty = specialty;
 
             await sleep(5000);
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Error generating for specialty', { specialty, error: error.message });
             cycleErrors++;
         }
@@ -238,16 +239,16 @@ async function runGenerationCycle(dal) {
 /**
  * Generate questions for a specific specialty
  */
-async function generateForSpecialty(dal, specialty) {
-    const topics = SPECIALTY_TOPICS[specialty];
+async function generateForSpecialty(dal: DAL, specialty: string): Promise<{ generated: number; errors: number }> {
+    const topics: string[] | undefined = SPECIALTY_TOPICS[specialty];
     if (!topics || topics.length === 0) return { generated: 0, errors: 0 };
 
-    const topic = topics[Math.floor(Math.random() * topics.length)];
+    const topic: string = topics[Math.floor(Math.random() * topics.length)];
     logger.info('Searching PubMed topic', { topic, specialty });
 
     try {
         const { articles } = await searchAndFetchAbstracts(topic, 3);
-        const newArticles = articles.filter(a => !processedPmids.has(a.pmid));
+        const newArticles: PubMedArticle[] = articles.filter(a => !processedPmids.has(a.pmid));
 
         if (newArticles.length === 0) {
             logger.info('No new articles found', { specialty });
@@ -257,7 +258,7 @@ async function generateForSpecialty(dal, specialty) {
         logger.info('Found new articles', { count: newArticles.length });
         await sleep(2000);
 
-        const result = await generateQuestionsFromArticles(newArticles, specialty);
+        const result: GenerationResult = await generateQuestionsFromArticles(newArticles, specialty);
 
         for (const question of result.questions) {
             question.generatedBy = 'background_service';
@@ -278,20 +279,20 @@ async function generateForSpecialty(dal, specialty) {
             generated: result.questions.length,
             errors: result.errors?.length || 0
         };
-    } catch (error) {
+    } catch (error: any) {
         logger.error('Error generating questions', { error: error.message });
         return { generated: 0, errors: 1 };
     }
 }
 
-function sleep(ms) {
+function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Reset daily stats at midnight — tracks last reset date to avoid missed windows
-let lastResetDate = new Date().toDateString();
+let lastResetDate: string = new Date().toDateString();
 setInterval(() => {
-    const today = new Date().toDateString();
+    const today: string = new Date().toDateString();
     if (today !== lastResetDate) {
         lastResetDate = today;
         stats.questionsToday = 0;

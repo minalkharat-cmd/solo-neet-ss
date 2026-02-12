@@ -1,6 +1,7 @@
 // Super Specialty PvP Battle Questions — 30 questions across 12 specialties
+import type { BattleQuestion } from '../types.js';
 
-export const battleQuestions = [
+export const battleQuestions: BattleQuestion[] = [
     // CARDIOLOGY
     {
         id: 'ss_pvp_001',

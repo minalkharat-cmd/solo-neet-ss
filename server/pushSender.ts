@@ -9,11 +9,12 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import logger from './lib/logger.js';
+import type { DAL, PushNotification, User } from './types.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __filename: string = fileURLToPath(import.meta.url);
+const __dirname: string = dirname(__filename);
 
-let fcmEnabled = false;
+let fcmEnabled: boolean = false;
 
 /**
  * Initialize Firebase Admin SDK
@@ -21,16 +22,16 @@ let fcmEnabled = false;
  *   1. FIREBASE_SERVICE_ACCOUNT_JSON env var (JSON string — for Render/production)
  *   2. Local file: server/firebase-service-account.json (for local dev)
  */
-export const initFirebaseAdmin = () => {
+export const initFirebaseAdmin = (): void => {
     try {
-        let serviceAccount = null;
+        let serviceAccount: any = null;
 
         // 1. Try env var first (production)
-        const envJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+        const envJson: string | undefined = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
         if (envJson) {
             logger.info('Firebase service account env var found', { length: envJson.length });
             try {
-                let cleaned = envJson.trim();
+                let cleaned: string = envJson.trim();
                 if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
                     cleaned = cleaned.slice(1, -1);
                 }
@@ -39,15 +40,15 @@ export const initFirebaseAdmin = () => {
                     serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
                 }
                 logger.info('Firebase key parsed', { projectId: serviceAccount.project_id });
-            } catch (parseErr) {
+            } catch (parseErr: any) {
                 logger.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON', { error: parseErr.message, preview: envJson.substring(0, 100) });
                 return;
             }
         } else {
             // 2. Try local file (development)
             try {
-                const keyPath = join(__dirname, 'firebase-service-account.json');
-                const raw = readFileSync(keyPath, 'utf-8');
+                const keyPath: string = join(__dirname, 'firebase-service-account.json');
+                const raw: string = readFileSync(keyPath, 'utf-8');
                 serviceAccount = JSON.parse(raw);
                 logger.info('Firebase key loaded from local file');
             } catch {
@@ -61,7 +62,7 @@ export const initFirebaseAdmin = () => {
         });
         fcmEnabled = true;
         logger.info('Firebase Admin initialized, push notifications enabled');
-    } catch (err) {
+    } catch (err: any) {
         logger.error('Firebase Admin init failed', { error: err.message });
     }
 };
@@ -70,14 +71,14 @@ export const initFirebaseAdmin = () => {
  * Send a push notification to a specific user
  * @param {object} dal — Data Access Layer
  */
-export const sendPushToUser = async (dal, userId, notification) => {
+export const sendPushToUser = async (dal: DAL, userId: string, notification: PushNotification): Promise<{ sent: number }> => {
     if (!fcmEnabled) return { sent: 0 };
 
-    const user = await dal.users.findById(userId);
+    const user: User | null = await dal.users.findById(userId);
     if (!user?.fcmTokens?.length) return { sent: 0 };
 
-    let sent = 0;
-    const invalidTokens = [];
+    let sent: number = 0;
+    const invalidTokens: string[] = [];
 
     for (const token of user.fcmTokens) {
         try {
@@ -98,7 +99,7 @@ export const sendPushToUser = async (dal, userId, notification) => {
                 }
             });
             sent++;
-        } catch (err) {
+        } catch (err: any) {
             if (err.code === 'messaging/registration-token-not-registered' ||
                 err.code === 'messaging/invalid-registration-token') {
                 invalidTokens.push(token);
@@ -109,7 +110,7 @@ export const sendPushToUser = async (dal, userId, notification) => {
 
     // Remove invalid tokens
     if (invalidTokens.length) {
-        const validTokens = user.fcmTokens.filter(t => !invalidTokens.includes(t));
+        const validTokens: string[] = user.fcmTokens.filter(t => !invalidTokens.includes(t));
         await dal.users.update(userId, { fcmTokens: validTokens });
     }
 
@@ -119,10 +120,10 @@ export const sendPushToUser = async (dal, userId, notification) => {
 /**
  * Broadcast to all users with FCM tokens
  */
-const broadcastToAll = async (dal, notification) => {
+const broadcastToAll = async (dal: DAL, notification: PushNotification): Promise<void> => {
     if (!fcmEnabled) return;
-    const usersWithTokens = await dal.users.findWithFCMTokens();
-    let totalSent = 0;
+    const usersWithTokens: User[] = await dal.users.findWithFCMTokens();
+    let totalSent: number = 0;
 
     for (const user of usersWithTokens) {
         const { sent } = await sendPushToUser(dal, user.id, notification);
@@ -137,13 +138,13 @@ const broadcastToAll = async (dal, notification) => {
 /**
  * Check and send daily study reminders
  */
-const sendDailyReminders = async (dal) => {
+const sendDailyReminders = async (dal: DAL): Promise<void> => {
     if (!fcmEnabled) return;
-    const currentHour = new Date().getHours();
+    const currentHour: number = new Date().getHours();
 
-    const users = await dal.users.findDailyReminderEligible(currentHour);
+    const users: User[] = await dal.users.findDailyReminderEligible(currentHour);
 
-    const motivation = [
+    const motivation: string[] = [
         '🔥 Rise and grind, Hunter! Your daily quests await.',
         '⚡ A true Hunter never skips their training!',
         '💎 Every question you crush levels you up!',
@@ -167,13 +168,13 @@ const sendDailyReminders = async (dal) => {
 /**
  * Check for users at risk of losing their streak (no activity in 20+ hours)
  */
-const sendStreakAlerts = async (dal) => {
+const sendStreakAlerts = async (dal: DAL): Promise<void> => {
     if (!fcmEnabled) return;
 
-    const atRisk = await dal.users.findStreakAtRisk();
+    const atRisk: User[] = await dal.users.findStreakAtRisk();
 
     for (const user of atRisk) {
-        const streak = user.streak || 0;
+        const streak: number = (user as any).streak || 0;
         await sendPushToUser(dal, user.id, {
             title: '🔥 Streak at Risk!',
             body: streak > 0
@@ -190,7 +191,7 @@ const sendStreakAlerts = async (dal) => {
 /**
  * Send challenge notifications when someone joins/creates
  */
-export const sendChallengeNotification = async (dal, targetUserId, challengerName, subject) => {
+export const sendChallengeNotification = async (dal: DAL, targetUserId: string, challengerName: string, subject: string): Promise<{ sent: number }> => {
     return sendPushToUser(dal, targetUserId, {
         title: '⚔️ Challenge Received!',
         body: `${challengerName} challenged you in ${subject}! Accept now?`,
@@ -201,14 +202,14 @@ export const sendChallengeNotification = async (dal, targetUserId, challengerNam
 
 // ============ SCHEDULER ============
 
-let reminderInterval = null;
-let streakInterval = null;
+let reminderInterval: ReturnType<typeof setInterval> | null = null;
+let streakInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Start the notification scheduler
  * @param {object} dal — Data Access Layer
  */
-export const startNotificationScheduler = (dal) => {
+export const startNotificationScheduler = (dal: DAL): void => {
     if (!fcmEnabled) {
         logger.info('Notification scheduler skipped', { reason: 'Firebase Admin not initialized' });
         return;
@@ -226,7 +227,7 @@ export const startNotificationScheduler = (dal) => {
 /**
  * Stop the notification scheduler
  */
-export const stopNotificationScheduler = () => {
+export const stopNotificationScheduler = (): void => {
     if (reminderInterval) clearInterval(reminderInterval);
     if (streakInterval) clearInterval(streakInterval);
 };

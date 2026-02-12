@@ -2,23 +2,24 @@
 // Connects to local Ollama server for MCQ generation using Llama 3
 
 import logger from './lib/logger.js';
+import type { OllamaStatus, OllamaGenerateOptions, PubMedArticle, GeneratedQuestion, GenerationResult, GenerationError } from './types.js';
 
-const OLLAMA_API_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'llama3:70b';
+const OLLAMA_API_URL: string = process.env.OLLAMA_URL || 'http://localhost:11434';
+const DEFAULT_MODEL: string = process.env.OLLAMA_MODEL || 'llama3:70b';
 
 /**
  * Check if Ollama is running and the model is available
  */
-export async function checkOllamaStatus() {
+export async function checkOllamaStatus(): Promise<OllamaStatus> {
     try {
-        const response = await fetch(`${OLLAMA_API_URL}/api/tags`);
+        const response: Response = await fetch(`${OLLAMA_API_URL}/api/tags`);
         if (!response.ok) {
             return { available: false, error: 'Ollama server not responding' };
         }
-        
-        const data = await response.json();
-        const models = data.models || [];
-        const hasModel = models.some(m => m.name.includes('llama3'));
+
+        const data: any = await response.json();
+        const models: any[] = data.models || [];
+        const hasModel: boolean = models.some((m: any) => m.name.includes('llama3'));
         
         return { 
             available: true, 
@@ -26,7 +27,7 @@ export async function checkOllamaStatus() {
             hasLlama3: hasModel,
             defaultModel: DEFAULT_MODEL
         };
-    } catch (error) {
+    } catch (error: any) {
         return { available: false, error: error.message };
     }
 }
@@ -36,8 +37,8 @@ export async function checkOllamaStatus() {
  * @param {string} prompt - The prompt to send
  * @param {Object} options - Generation options
  */
-export async function generateWithOllama(prompt, options = {}) {
-    const model = options.model || DEFAULT_MODEL;
+export async function generateWithOllama(prompt: string, options: OllamaGenerateOptions = {}): Promise<string> {
+    const model: string = options.model || DEFAULT_MODEL;
     
     const requestBody = {
         model,
@@ -60,7 +61,7 @@ export async function generateWithOllama(prompt, options = {}) {
         }
     };
 
-    const response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
+    const response: Response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -69,11 +70,11 @@ export async function generateWithOllama(prompt, options = {}) {
     });
 
     if (!response.ok) {
-        const error = await response.text();
+        const error: string = await response.text();
         throw new Error(`Ollama API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     return data.message?.content || '';
 }
 
@@ -82,13 +83,13 @@ export async function generateWithOllama(prompt, options = {}) {
  * @param {Object} article - Article data from PubMed
  * @param {string} specialty - Medical specialty category
  */
-export async function generateQuestionsWithOllama(article, specialty = 'general') {
+export async function generateQuestionsWithOllama(article: PubMedArticle, specialty: string = 'general'): Promise<GeneratedQuestion[]> {
     if (!article.abstract || article.abstract.length < 100) {
         throw new Error('Abstract too short to generate meaningful questions');
     }
 
-    const prompt = buildQuestionPrompt(article, specialty);
-    const text = await generateWithOllama(prompt);
+    const prompt: string = buildQuestionPrompt(article, specialty);
+    const text: string = await generateWithOllama(prompt);
 
     if (!text) {
         throw new Error('No response from Ollama');
@@ -100,7 +101,7 @@ export async function generateQuestionsWithOllama(article, specialty = 'general'
 /**
  * Build the prompt for MCQ generation
  */
-function buildQuestionPrompt(article, specialty) {
+function buildQuestionPrompt(article: PubMedArticle, specialty: string): string {
     return `Based on this PubMed article, generate 2-3 high-yield multiple choice questions for NEET SS exam preparation.
 
 ARTICLE TITLE: ${article.title}
@@ -138,9 +139,9 @@ Generate the questions now:`;
 /**
  * Parse LLM response to extract questions
  */
-function parseGeneratedQuestions(text, article) {
+function parseGeneratedQuestions(text: string, article: PubMedArticle): GeneratedQuestion[] {
     // Try to extract JSON from the response
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    const jsonMatch: RegExpMatchArray | null = text.match(/\[[\s\S]*\]/);
 
     if (!jsonMatch) {
         logger.error('Could not find JSON in Ollama response', { responsePreview: text.substring(0, 200) });
@@ -148,29 +149,29 @@ function parseGeneratedQuestions(text, article) {
     }
 
     try {
-        const questions = JSON.parse(jsonMatch[0]);
+        const questions: any[] = JSON.parse(jsonMatch[0]);
 
         // Validate and enhance each question
-        return questions.map((q, index) => {
+        return questions.map((q: any, index: number) => {
             // Validate structure
             if (!q.question || !Array.isArray(q.options) || q.options.length !== 4) {
                 throw new Error(`Invalid question structure at index ${index}`);
             }
 
             // Ensure correct is a valid index
-            const correctIndex = typeof q.correct === 'number' ? q.correct : 0;
+            const correctIndex: number = typeof q.correct === 'number' ? q.correct : 0;
             if (correctIndex < 0 || correctIndex > 3) {
                 q.correct = 0;
             }
 
             // Validate difficulty
-            const validDifficulties = ['easy', 'medium', 'hard'];
+            const validDifficulties: string[] = ['easy', 'medium', 'hard'];
             if (!validDifficulties.includes(q.difficulty)) {
                 q.difficulty = 'medium';
             }
 
             // Set XP based on difficulty
-            const xpMap = { easy: 10, medium: 25, hard: 50 };
+            const xpMap: Record<string, number> = { easy: 10, medium: 25, hard: 50 };
             q.xp = xpMap[q.difficulty];
 
             // Add source metadata
@@ -194,7 +195,7 @@ function parseGeneratedQuestions(text, article) {
 
             return q;
         });
-    } catch (error) {
+    } catch (error: any) {
         logger.error('JSON parse error in Ollama response', { error: error.message, textPreview: jsonMatch[0].substring(0, 200) });
         throw new Error(`Failed to parse AI response: ${error.message}`);
     }
@@ -203,19 +204,19 @@ function parseGeneratedQuestions(text, article) {
 /**
  * Generate questions from multiple articles using Ollama
  */
-export async function generateQuestionsFromArticles(articles, specialty = 'general') {
-    const allQuestions = [];
-    const errors = [];
+export async function generateQuestionsFromArticles(articles: PubMedArticle[], specialty: string = 'general'): Promise<GenerationResult> {
+    const allQuestions: GeneratedQuestion[] = [];
+    const errors: GenerationError[] = [];
 
     for (const article of articles) {
         try {
             // Ollama is local, so we can be more aggressive with requests
             // But still add a small delay for stability
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise<void>(resolve => setTimeout(resolve, 500));
 
-            const questions = await generateQuestionsWithOllama(article, specialty);
+            const questions: GeneratedQuestion[] = await generateQuestionsWithOllama(article, specialty);
             allQuestions.push(...questions);
-        } catch (error) {
+        } catch (error: any) {
             errors.push({
                 pmid: article.pmid,
                 title: article.title,

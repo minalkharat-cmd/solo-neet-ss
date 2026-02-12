@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Request, Response, NextFunction, Router as RouterType } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import passport from 'passport';
@@ -6,18 +7,26 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import crypto from 'crypto';
 import { sanitizeInput, validatePassword, validateEmail } from '../middleware/validation.js';
 import logger from '../lib/logger.js';
+import type { DAL, User, Progress, LeaderboardEntry } from '../types.js';
 
-export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter, isProduction, FRONTEND_URL }) {
-    const router = Router();
+export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter, isProduction, FRONTEND_URL }: {
+    dal: DAL;
+    JWT_SECRET: string;
+    authMiddleware: (req: Request, res: Response, next: NextFunction) => void;
+    authLimiter: (req: Request, res: Response, next: NextFunction) => void;
+    isProduction: boolean;
+    FRONTEND_URL: string;
+}): RouterType {
+    const router: RouterType = Router();
 
-    const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-    const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-    const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || `http://localhost:${process.env.PORT || 3002}/api/auth/google/callback`;
-    const googleOAuthEnabled = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
+    const GOOGLE_CLIENT_ID: string | undefined = process.env.GOOGLE_CLIENT_ID;
+    const GOOGLE_CLIENT_SECRET: string | undefined = process.env.GOOGLE_CLIENT_SECRET;
+    const GOOGLE_CALLBACK_URL: string = process.env.GOOGLE_CALLBACK_URL || `http://localhost:${process.env.PORT || 3002}/api/auth/google/callback`;
+    const googleOAuthEnabled: boolean = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
 
-    const generateId = () => crypto.randomUUID();
+    const generateId = (): string => crypto.randomUUID();
 
-    const getRank = (level) => {
+    const getRank = (level: number): string => {
         if (level >= 81) return 'S';
         if (level >= 61) return 'A';
         if (level >= 41) return 'B';
@@ -26,11 +35,11 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
         return 'E';
     };
 
-    const createUserWithProgress = async (userData) => {
+    const createUserWithProgress = async (userData: Omit<User, 'id' | 'createdAt'>): Promise<User> => {
         const userId = generateId();
-        const newUser = { id: userId, ...userData, createdAt: new Date().toISOString() };
+        const newUser: User = { id: userId, ...userData, createdAt: new Date().toISOString() };
 
-        const progressData = {
+        const progressData: Progress = {
             userId, level: 1, currentXP: 0, totalXP: 0,
             questionsAnswered: 0, correctAnswers: 0,
             currentStreak: 0, bestStreak: 0,
@@ -52,7 +61,7 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
             }
         };
 
-        const leaderboardData = {
+        const leaderboardData: LeaderboardEntry = {
             userId, username: newUser.username, hunterName: newUser.hunterName,
             level: 1, totalXP: 0, rank: 'E'
         };
@@ -64,17 +73,17 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
     // Google OAuth setup
     if (googleOAuthEnabled) {
         passport.use(new GoogleStrategy({
-            clientID: GOOGLE_CLIENT_ID,
-            clientSecret: GOOGLE_CLIENT_SECRET,
+            clientID: GOOGLE_CLIENT_ID!,
+            clientSecret: GOOGLE_CLIENT_SECRET!,
             callbackURL: GOOGLE_CALLBACK_URL
         },
-            async (accessToken, refreshToken, profile, done) => {
+            async (accessToken: string, refreshToken: string, profile: passport.Profile, done: (error: any, user?: any) => void) => {
                 try {
                     let user = await dal.users.findByGoogleId(profile.id);
 
                     if (!user) {
-                        const email = profile.emails?.[0]?.value;
-                        user = await dal.users.findByEmail(email);
+                        const email: string | undefined = profile.emails?.[0]?.value;
+                        user = await dal.users.findByEmail(email as string);
 
                         if (user) {
                             await dal.users.update(user.id, {
@@ -84,7 +93,7 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
                         } else {
                             const username = profile.displayName?.replace(/\s+/g, '_').toLowerCase() || `hunter_${generateId().slice(0, 6)}`;
                             user = await createUserWithProgress({
-                                username, email,
+                                username, email: email as string,
                                 googleId: profile.id,
                                 hunterName: profile.displayName || 'Hunter',
                                 avatar: profile.photos?.[0]?.value,
@@ -106,14 +115,15 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
 
         router.get('/google/callback',
             passport.authenticate('google', { session: false, failureRedirect: `${FRONTEND_URL}?auth=failed` }),
-            (req, res) => {
-                const token = jwt.sign({ userId: req.user.id }, JWT_SECRET, { expiresIn: '7d' });
-                const userAgent = req.headers['user-agent'] || '';
-                const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+            (req: Request, res: Response) => {
+                const user = req.user as User;
+                const token: string = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+                const userAgent: string = req.headers['user-agent'] || '';
+                const isMobile: boolean = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
 
-                const userParam = encodeURIComponent(JSON.stringify({
-                    id: req.user.id, username: req.user.username,
-                    hunterName: req.user.hunterName, avatar: req.user.avatar
+                const userParam: string = encodeURIComponent(JSON.stringify({
+                    id: user.id, username: user.username,
+                    hunterName: user.hunterName, avatar: user.avatar
                 }));
 
                 if (isMobile) {
@@ -129,18 +139,18 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
         );
     } else {
         logger.warn('Google OAuth disabled', { reason: 'GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set' });
-        router.get('/google', (req, res) => {
+        router.get('/google', (req: Request, res: Response) => {
             res.status(503).json({ error: 'Google OAuth is not configured.' });
         });
     }
 
     // Register
-    router.post('/register', authLimiter, async (req, res) => {
+    router.post('/register', authLimiter, async (req: Request, res: Response) => {
         try {
-            const username = sanitizeInput(req.body.username, 30);
-            const email = sanitizeInput(req.body.email, 100);
-            const password = req.body.password;
-            const hunterName = sanitizeInput(req.body.hunterName, 50) || 'Hunter';
+            const username: string = sanitizeInput(req.body.username, 30);
+            const email: string = sanitizeInput(req.body.email, 100);
+            const password: string = req.body.password;
+            const hunterName: string = sanitizeInput(req.body.hunterName, 50) || 'Hunter';
 
             if (!username || !email || !password) {
                 return res.status(400).json({ error: 'All fields required' });
@@ -159,40 +169,40 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
                 return res.status(400).json({ error: passwordError });
             }
 
-            const existing = await dal.users.findByEmailOrUsername(email, username);
+            const existing: User | null = await dal.users.findByEmailOrUsername(email, username);
             if (existing) {
                 return res.status(400).json({ error: 'Username or email already exists' });
             }
 
-            const hashedPassword = await bcrypt.hash(password, 12);
-            const user = await createUserWithProgress({
+            const hashedPassword: string = await bcrypt.hash(password, 12);
+            const user: User = await createUserWithProgress({
                 username, email, password: hashedPassword, hunterName
             });
 
-            const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+            const token: string = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
             res.json({ token, user: { id: user.id, username, email, hunterName } });
-        } catch (err) {
+        } catch (err: any) {
             logger.error('Registration failed', { error: err.message });
             res.status(500).json({ error: 'Registration failed' });
         }
     });
 
     // Login
-    router.post('/login', authLimiter, async (req, res) => {
+    router.post('/login', authLimiter, async (req: Request, res: Response) => {
         try {
             const { email, password } = req.body;
-            const user = await dal.users.findByEmail(email);
+            const user: User | null = await dal.users.findByEmail(email);
 
             if (!user || !user.password) {
                 return res.status(401).json({ error: 'Invalid email or password' });
             }
 
-            const validPassword = await bcrypt.compare(password, user.password);
+            const validPassword: boolean = await bcrypt.compare(password, user.password);
             if (!validPassword) {
                 return res.status(401).json({ error: 'Invalid email or password' });
             }
 
-            const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+            const token: string = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
             res.json({
                 token,
                 user: {
@@ -200,16 +210,16 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
                     hunterName: user.hunterName, avatar: user.avatar
                 }
             });
-        } catch (err) {
+        } catch (err: any) {
             logger.error('Login failed', { error: err.message });
             res.status(500).json({ error: 'Login failed' });
         }
     });
 
     // Get current user
-    router.get('/me', authMiddleware, async (req, res) => {
+    router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         try {
-            const user = await dal.users.findById(req.userId);
+            const user: User | null = await dal.users.findById(req.userId);
             if (!user) return res.status(404).json({ error: 'User not found' });
 
             res.json({
@@ -218,13 +228,13 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
                     hunterName: user.hunterName, avatar: user.avatar
                 }
             });
-        } catch (err) {
+        } catch (err: any) {
             logger.error('Failed to fetch current user', { error: err.message });
             res.status(500).json({ error: 'Failed to fetch user' });
         }
     });
 
-    router._helpers = { createUserWithProgress, getRank, generateId };
+    (router as any)._helpers = { createUserWithProgress, getRank, generateId };
 
     return router;
 }

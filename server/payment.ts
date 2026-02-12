@@ -2,9 +2,18 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import logger from './lib/logger.js';
+import type { Plan } from './types.js';
+
+interface OrderResult {
+    orderId: string;
+    amount: number;
+    currency: string;
+    planName: string;
+    keyId: string | undefined;
+}
 
 // Initialize Razorpay instance only if credentials are configured
-let razorpay = null;
+let razorpay: any = null;
 if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
     razorpay = new Razorpay({
         key_id: process.env.RAZORPAY_KEY_ID,
@@ -16,7 +25,7 @@ if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
 }
 
 // Subscription Plans
-export const PLANS = {
+export const PLANS: Record<string, Plan> = {
     monthly: {
         id: 'premium_monthly',
         name: 'Premium Monthly',
@@ -34,12 +43,12 @@ export const PLANS = {
 };
 
 // Create Razorpay Order
-export async function createOrder(planId, userId) {
+export async function createOrder(planId: string, userId: string): Promise<OrderResult> {
     if (!razorpay) {
         throw new Error('Payment gateway not configured');
     }
 
-    const plan = PLANS[planId];
+    const plan: Plan | undefined = PLANS[planId];
     if (!plan) {
         throw new Error('Invalid plan');
     }
@@ -63,20 +72,20 @@ export async function createOrder(planId, userId) {
             planName: plan.name,
             keyId: process.env.RAZORPAY_KEY_ID
         };
-    } catch (error) {
+    } catch (error: any) {
         logger.error('Razorpay order creation failed', { error: error.message });
         throw new Error('Failed to create payment order');
     }
 }
 
 // Verify Payment Signature
-export function verifyPayment(orderId, paymentId, signature) {
+export function verifyPayment(orderId: string, paymentId: string, signature: string): boolean {
     if (!process.env.RAZORPAY_KEY_SECRET) {
         throw new Error('Payment verification unavailable: credentials not configured');
     }
 
-    const body = orderId + '|' + paymentId;
-    const expectedSignature = crypto
+    const body: string = orderId + '|' + paymentId;
+    const expectedSignature: string = crypto
         .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
         .update(body)
         .digest('hex');
@@ -93,27 +102,27 @@ export function verifyPayment(orderId, paymentId, signature) {
 }
 
 // Calculate subscription end date
-export function calculateSubscriptionEnd(planId) {
-    const plan = PLANS[planId];
-    const endDate = new Date();
+export function calculateSubscriptionEnd(planId: string): string {
+    const plan: Plan = PLANS[planId];
+    const endDate: Date = new Date();
     endDate.setDate(endDate.getDate() + plan.duration);
     return endDate.toISOString();
 }
 
 // Get payment details
-export async function getPaymentDetails(paymentId) {
+export async function getPaymentDetails(paymentId: string): Promise<any> {
     if (!razorpay) return null;
     try {
         const payment = await razorpay.payments.fetch(paymentId);
         return payment;
-    } catch (error) {
+    } catch (error: any) {
         logger.error('Failed to fetch payment details', { error: error.message });
         return null;
     }
 }
 
 // Check if Razorpay is configured
-export function isConfigured() {
+export function isConfigured(): boolean {
     return razorpay !== null;
 }
 

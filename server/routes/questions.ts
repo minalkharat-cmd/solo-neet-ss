@@ -1,14 +1,22 @@
 import { Router } from 'express';
+import type { Request, Response, NextFunction, Router as RouterType } from 'express';
 import { searchAndFetchAbstracts } from '../pubmed.js';
 import { generateQuestionsFromArticles } from '../questionGenerator.js';
 import { generateQuestionsFromArticles as generateWithOllama, checkOllamaStatus } from '../ollamaClient.js';
 import logger from '../lib/logger.js';
+import type { DAL, GeneratedQuestion, GenerationResult } from '../types.js';
 
-export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, getLlmProvider, setLlmProvider }) {
-    const router = Router();
+export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, getLlmProvider, setLlmProvider }: {
+    dal: DAL;
+    authMiddleware: (req: Request, res: Response, next: NextFunction) => void;
+    adminMiddleware: (req: Request, res: Response, next: NextFunction) => void;
+    getLlmProvider: () => string;
+    setLlmProvider: (p: string) => void;
+}): RouterType {
+    const router: RouterType = Router();
 
     // Search PubMed articles
-    router.post('/pubmed/search', authMiddleware, async (req, res) => {
+    router.post('/pubmed/search', authMiddleware, async (req: Request, res: Response) => {
         try {
             const { query, limit = 5 } = req.body;
             if (!query || query.length < 3) {
@@ -28,14 +36,14 @@ export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, get
                     year: a.year
                 }))
             });
-        } catch (error) {
+        } catch (error: any) {
             logger.error('PubMed search failed', { error: error.message });
             res.status(500).json({ error: 'Failed to search PubMed' });
         }
     });
 
     // Generate questions from articles
-    router.post('/pubmed/generate', authMiddleware, async (req, res) => {
+    router.post('/pubmed/generate', authMiddleware, async (req: Request, res: Response) => {
         try {
             const { pmids, specialty = 'general', provider } = req.body;
             if (!pmids || !Array.isArray(pmids) || pmids.length === 0) {
@@ -47,8 +55,8 @@ export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, get
                 return res.status(404).json({ error: 'No articles found for provided PMIDs' });
             }
 
-            const useProvider = provider || getLlmProvider();
-            let result;
+            const useProvider: string = provider || getLlmProvider();
+            let result: GenerationResult;
             if (useProvider === 'ollama') {
                 result = await generateWithOllama(articles, specialty);
             } else {
@@ -71,14 +79,14 @@ export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, get
                 questions: result.questions,
                 errorDetails: result.errors
             });
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Question generation failed', { error: error.message });
             res.status(500).json({ error: 'Failed to generate questions' });
         }
     });
 
     // Get LLM status
-    router.get('/llm/status', async (req, res) => {
+    router.get('/llm/status', async (req: Request, res: Response) => {
         const ollamaStatus = await checkOllamaStatus();
         const geminiConfigured = !!process.env.GEMINI_API_KEY;
         res.json({
@@ -89,7 +97,7 @@ export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, get
     });
 
     // Switch LLM provider (admin only)
-    router.post('/llm/provider', authMiddleware, adminMiddleware, async (req, res) => {
+    router.post('/llm/provider', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
         const { provider } = req.body;
         if (!['ollama', 'gemini'].includes(provider)) {
             return res.status(400).json({ error: 'Provider must be "ollama" or "gemini"' });
@@ -112,17 +120,17 @@ export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, get
     });
 
     // Get generated questions
-    router.get('/questions/generated', authMiddleware, async (req, res) => {
-        const reviewed = req.query.reviewed === 'true' ? true : req.query.reviewed === 'false' ? false : undefined;
-        const filtered = await dal.generatedQuestions.list({ reviewed });
+    router.get('/questions/generated', authMiddleware, async (req: Request, res: Response) => {
+        const reviewed: boolean | undefined = req.query.reviewed === 'true' ? true : req.query.reviewed === 'false' ? false : undefined;
+        const filtered: GeneratedQuestion[] = await dal.generatedQuestions.list({ reviewed });
         res.json({ total: filtered.length, questions: filtered.slice(-50) });
     });
 
     // Approve/reject a generated question
-    router.patch('/questions/generated/:id', authMiddleware, async (req, res) => {
-        const { id } = req.params;
+    router.patch('/questions/generated/:id', authMiddleware, async (req: Request, res: Response) => {
+        const id: string = req.params.id as string;
         const { approved, specialty } = req.body;
-        const result = await dal.generatedQuestions.review(id, {
+        const result: GeneratedQuestion | null = await dal.generatedQuestions.review(id, {
             approved,
             reviewedBy: req.userId,
             specialty

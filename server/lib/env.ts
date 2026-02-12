@@ -3,12 +3,25 @@
 
 import logger from './logger.js';
 
-const REQUIRED_PRODUCTION = [
+interface EnvVar {
+    key: string;
+    description: string;
+}
+
+export interface Features {
+    googleOAuth: boolean;
+    razorpay: boolean;
+    geminiAI: boolean;
+    firebase: boolean;
+    ollama: boolean;
+}
+
+const REQUIRED_PRODUCTION: EnvVar[] = [
     { key: 'JWT_SECRET', description: 'JWT signing secret' },
     { key: 'FRONTEND_URL', description: 'Frontend origin for CORS' },
 ];
 
-const OPTIONAL = [
+const OPTIONAL: EnvVar[] = [
     { key: 'GOOGLE_CLIENT_ID', description: 'Google OAuth client ID' },
     { key: 'GOOGLE_CLIENT_SECRET', description: 'Google OAuth client secret' },
     { key: 'GOOGLE_CALLBACK_URL', description: 'Google OAuth callback URL' },
@@ -25,9 +38,9 @@ const OPTIONAL = [
  * Validate environment and log configuration summary.
  * Exits process in production if required vars are missing.
  */
-export function validateEnvironment() {
-    const isProduction = process.env.NODE_ENV === 'production';
-    const errors = [];
+export function validateEnvironment(): Features {
+    const isProduction: boolean = process.env.NODE_ENV === 'production';
+    const errors: string[] = [];
 
     // Check required (production-only)
     if (isProduction) {
@@ -47,7 +60,7 @@ export function validateEnvironment() {
     }
 
     // Log configuration summary
-    const features = {
+    const features: Features = {
         googleOAuth: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
         razorpay: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
         geminiAI: !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY'),

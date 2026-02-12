@@ -4,23 +4,28 @@
 
 import logger from './logger.js';
 
-const shutdownCallbacks = [];
-let isShuttingDown = false;
+interface ShutdownCallback {
+    name: string;
+    fn: () => Promise<void>;
+}
+
+const shutdownCallbacks: ShutdownCallback[] = [];
+let isShuttingDown: boolean = false;
 
 /**
  * Register a cleanup function to run on shutdown.
  * @param {string} name — label for logging
  * @param {function} fn — async cleanup function
  */
-export function onShutdown(name, fn) {
+export function onShutdown(name: string, fn: () => Promise<void>): void {
     shutdownCallbacks.push({ name, fn });
 }
 
 /**
  * Install SIGTERM/SIGINT handlers. Call once at startup.
  */
-export function installShutdownHandlers() {
-    const shutdown = async (signal) => {
+export function installShutdownHandlers(): void {
+    const shutdown = async (signal: string): Promise<void> => {
         if (isShuttingDown) return;
         isShuttingDown = true;
 
@@ -33,8 +38,8 @@ export function installShutdownHandlers() {
                     new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
                 ]);
                 logger.info(`Shutdown: ${name} completed`);
-            } catch (err) {
-                logger.error(`Shutdown: ${name} failed`, { error: err.message });
+            } catch (err: unknown) {
+                logger.error(`Shutdown: ${name} failed`, { error: (err as Error).message });
             }
         }
 
@@ -46,7 +51,7 @@ export function installShutdownHandlers() {
     process.on('SIGINT', () => shutdown('SIGINT'));
 
     // Catch unhandled errors at process level
-    process.on('unhandledRejection', (reason) => {
+    process.on('unhandledRejection', (reason: unknown) => {
         logger.error('Unhandled promise rejection', {
             error: reason instanceof Error ? reason.message : String(reason),
             stack: reason instanceof Error ? reason.stack : undefined

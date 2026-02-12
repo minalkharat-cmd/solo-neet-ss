@@ -2,12 +2,13 @@
 // Catches all unhandled errors and returns consistent JSON responses.
 // Logs full error details server-side; returns safe messages to clients.
 
+import type { Request, Response, NextFunction } from 'express';
 import logger from '../lib/logger.js';
 
 /**
  * Express error-handling middleware (must have 4 params).
  */
-export function errorHandler(err, req, res, _next) {
+export function errorHandler(err: Error & { status?: number; statusCode?: number }, req: Request, res: Response, _next: NextFunction): void {
     const requestId = req.id || 'unknown';
     const status = err.status || err.statusCode || 500;
 
@@ -35,7 +36,7 @@ export function errorHandler(err, req, res, _next) {
 /**
  * 404 handler for unmatched routes.
  */
-export function notFoundHandler(req, res) {
+export function notFoundHandler(req: Request, res: Response): void {
     res.status(404).json({
         error: 'Not found',
         path: req.originalUrl,

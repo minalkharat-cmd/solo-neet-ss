@@ -1,18 +1,21 @@
 // Solo NEET SS - Social Features (Groups + Challenges)
-const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
+import type { Express, Request, Response, NextFunction } from 'express';
+import type { DAL } from './types.js';
 import { sendChallengeNotification } from './pushSender.js';
+
+const generateId = (): string => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
 /**
  * Register social routes on the Express app
  * @param {object} dal — Data Access Layer
  */
-export const registerSocialRoutes = (app, dal, authMiddleware) => {
+export const registerSocialRoutes = (app: Express, dal: DAL, authMiddleware: (req: Request, res: Response, next: NextFunction) => void): void => {
 
     // ============ STUDY GROUPS ============
 
     // List all groups
-    app.get('/api/groups', async (req, res) => {
+    app.get('/api/groups', async (req: Request, res: Response) => {
         const groups = await dal.groups.getAll();
         const enriched = await Promise.all(groups.map(async g => {
             const members = await Promise.all(g.memberIds.map(async id => {
@@ -25,7 +28,7 @@ export const registerSocialRoutes = (app, dal, authMiddleware) => {
     });
 
     // Create group
-    app.post('/api/groups', authMiddleware, async (req, res) => {
+    app.post('/api/groups', authMiddleware, async (req: Request, res: Response) => {
         const { name, description } = req.body;
         if (!name?.trim()) return res.status(400).json({ error: 'Group name required' });
 
@@ -43,30 +46,32 @@ export const registerSocialRoutes = (app, dal, authMiddleware) => {
     });
 
     // Join group
-    app.post('/api/groups/:id/join', authMiddleware, async (req, res) => {
-        const group = await dal.groups.findById(req.params.id);
+    app.post('/api/groups/:id/join', authMiddleware, async (req: Request, res: Response) => {
+        const groupId = req.params.id as string;
+        const group = await dal.groups.findById(groupId);
         if (!group) return res.status(404).json({ error: 'Group not found' });
         if (group.memberIds.includes(req.userId)) return res.status(400).json({ error: 'Already a member' });
         if (group.memberIds.length >= group.maxMembers) return res.status(400).json({ error: 'Group is full' });
 
-        await dal.groups.addMember(req.params.id, req.userId);
+        await dal.groups.addMember(groupId, req.userId);
         res.json({ success: true });
     });
 
     // Leave group
-    app.post('/api/groups/:id/leave', authMiddleware, async (req, res) => {
-        const group = await dal.groups.findById(req.params.id);
+    app.post('/api/groups/:id/leave', authMiddleware, async (req: Request, res: Response) => {
+        const groupId = req.params.id as string;
+        const group = await dal.groups.findById(groupId);
         if (!group) return res.status(404).json({ error: 'Group not found' });
         if (group.ownerId === req.userId) return res.status(400).json({ error: 'Owner cannot leave. Delete the group instead.' });
 
-        await dal.groups.removeMember(req.params.id, req.userId);
+        await dal.groups.removeMember(groupId, req.userId);
         res.json({ success: true });
     });
 
     // ============ FRIEND CHALLENGES ============
 
     // Create challenge
-    app.post('/api/challenge/create', authMiddleware, async (req, res) => {
+    app.post('/api/challenge/create', authMiddleware, async (req: Request, res: Response) => {
         const { subject, questionCount = 10 } = req.body;
         const code = generateId().slice(0, 6).toUpperCase();
 
@@ -85,7 +90,7 @@ export const registerSocialRoutes = (app, dal, authMiddleware) => {
     });
 
     // Join challenge
-    app.post('/api/challenge/join', authMiddleware, async (req, res) => {
+    app.post('/api/challenge/join', authMiddleware, async (req: Request, res: Response) => {
         const { code } = req.body;
         if (!code) return res.status(400).json({ error: 'Challenge code required' });
 
@@ -94,10 +99,11 @@ export const registerSocialRoutes = (app, dal, authMiddleware) => {
         if (challenge.creatorId === req.userId) return res.status(400).json({ error: 'Cannot join your own challenge' });
 
         const activated = await dal.challenges.activate(code, req.userId);
+        if (!activated) return res.status(404).json({ error: 'Challenge activation failed' });
 
         // Push notify the challenge creator
         const joiner = await dal.users.findById(req.userId);
-        const joinerName = joiner?.hunterName || 'A Hunter';
+        const joinerName: string = joiner?.hunterName || 'A Hunter';
         sendChallengeNotification(dal, activated.creatorId, joinerName, activated.subject).catch(() => { });
 
         res.json({

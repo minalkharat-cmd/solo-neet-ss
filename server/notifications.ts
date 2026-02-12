@@ -1,13 +1,16 @@
 // Solo NEET SS - Server-Side Push Notification Routes
 
+import type { Express, Request, Response, NextFunction } from 'express';
+import type { DAL } from './types.js';
+
 /**
  * Register notification-related routes
  * @param {object} dal — Data Access Layer
  */
-export const registerNotificationRoutes = (app, dal, authMiddleware) => {
+export const registerNotificationRoutes = (app: Express, dal: DAL, authMiddleware: (req: Request, res: Response, next: NextFunction) => void): void => {
 
     // Store FCM token for a user
-    app.post('/api/notifications/register', authMiddleware, async (req, res) => {
+    app.post('/api/notifications/register', authMiddleware, async (req: Request, res: Response) => {
         const { fcmToken } = req.body;
         if (!fcmToken) return res.status(400).json({ error: 'FCM token required' });
 
@@ -17,9 +20,9 @@ export const registerNotificationRoutes = (app, dal, authMiddleware) => {
         // Store FCM token on user
         if (!user.fcmTokens) user.fcmTokens = [];
         if (!user.fcmTokens.includes(fcmToken)) {
-            const tokens = [...user.fcmTokens, fcmToken];
+            const tokens: string[] = [...user.fcmTokens, fcmToken];
             // Keep max 5 tokens per user (multi-device)
-            const trimmed = tokens.length > 5 ? tokens.slice(-5) : tokens;
+            const trimmed: string[] = tokens.length > 5 ? tokens.slice(-5) : tokens;
             await dal.users.update(req.userId, { fcmTokens: trimmed });
         }
 
@@ -27,7 +30,7 @@ export const registerNotificationRoutes = (app, dal, authMiddleware) => {
     });
 
     // Get notification preferences
-    app.get('/api/notifications/preferences', authMiddleware, async (req, res) => {
+    app.get('/api/notifications/preferences', authMiddleware, async (req: Request, res: Response) => {
         const user = await dal.users.findById(req.userId);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -41,7 +44,7 @@ export const registerNotificationRoutes = (app, dal, authMiddleware) => {
     });
 
     // Update notification preferences
-    app.put('/api/notifications/preferences', authMiddleware, async (req, res) => {
+    app.put('/api/notifications/preferences', authMiddleware, async (req: Request, res: Response) => {
         const { dailyReminder, streakReminder, challengeNotify, reminderHour } = req.body;
 
         const user = await dal.users.findById(req.userId);

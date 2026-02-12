@@ -2,43 +2,42 @@
 // Swap the underlying adapter (Lowdb → SQLite/Postgres) without touching routes.
 
 import crypto from 'crypto';
+import type { Low } from 'lowdb';
+import type { DatabaseData, DAL, User, Progress, LeaderboardEntry, GeneratedQuestion, SRSRecord, Payment, Group, Challenge, SubscriptionActivation } from './types.js';
 
-/**
- * @param {import('lowdb').Low} db — Lowdb instance
- */
-export function createDAL(db) {
+export function createDAL(db: Low<DatabaseData>): DAL {
 
     // ======================== USERS ========================
 
     const users = {
-        async findById(id) {
+        async findById(id: string) {
             await db.read();
             return db.data.users.find(u => u.id === id) || null;
         },
 
-        async findByEmail(email) {
+        async findByEmail(email: string) {
             await db.read();
             return db.data.users.find(u => u.email === email) || null;
         },
 
-        async findByGoogleId(googleId) {
+        async findByGoogleId(googleId: string) {
             await db.read();
             return db.data.users.find(u => u.googleId === googleId) || null;
         },
 
-        async findByEmailOrUsername(email, username) {
+        async findByEmailOrUsername(email: string, username: string) {
             await db.read();
             return db.data.users.find(u => u.email === email || u.username === username) || null;
         },
 
-        async create(userData) {
+        async create(userData: User) {
             await db.read();
             db.data.users.push(userData);
             await db.write();
             return userData;
         },
 
-        async update(id, updates) {
+        async update(id: string, updates: Partial<User>) {
             await db.read();
             const user = db.data.users.find(u => u.id === id);
             if (!user) return null;
@@ -55,14 +54,14 @@ export function createDAL(db) {
         /** Users with registered FCM tokens */
         async findWithFCMTokens() {
             await db.read();
-            return db.data.users.filter(u => u.fcmTokens?.length > 0);
+            return db.data.users.filter(u => (u.fcmTokens?.length ?? 0) > 0);
         },
 
         /** Users eligible for daily reminders at a given hour */
-        async findDailyReminderEligible(hour) {
+        async findDailyReminderEligible(hour: number) {
             await db.read();
             return db.data.users.filter(u =>
-                u.fcmTokens?.length > 0 &&
+                (u.fcmTokens?.length ?? 0) > 0 &&
                 (u.notificationPrefs?.dailyReminder !== false) &&
                 (u.notificationPrefs?.reminderHour ?? 9) === hour
             );
@@ -84,7 +83,7 @@ export function createDAL(db) {
         },
 
         /** New users in last N days */
-        async countNewSince(days) {
+        async countNewSince(days: number) {
             await db.read();
             const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
             return db.data.users.filter(u => new Date(u.createdAt).getTime() > cutoff).length;
@@ -94,19 +93,19 @@ export function createDAL(db) {
     // ======================== PROGRESS ========================
 
     const progress = {
-        async findByUserId(userId) {
+        async findByUserId(userId: string) {
             await db.read();
             return db.data.progress.find(p => p.userId === userId) || null;
         },
 
-        async create(record) {
+        async create(record: Progress) {
             await db.read();
             db.data.progress.push(record);
             await db.write();
             return record;
         },
 
-        async update(userId, updates) {
+        async update(userId: string, updates: Partial<Progress>) {
             await db.read();
             const idx = db.data.progress.findIndex(p => p.userId === userId);
             if (idx === -1) return null;
@@ -125,19 +124,19 @@ export function createDAL(db) {
     // ======================== LEADERBOARD ========================
 
     const leaderboard = {
-        async getTopPlayers(limit = 50) {
+        async getTopPlayers(limit: number = 50) {
             await db.read();
             return [...db.data.leaderboard]
                 .sort((a, b) => b.totalXP - a.totalXP)
                 .slice(0, limit);
         },
 
-        async findByUserId(userId) {
+        async findByUserId(userId: string) {
             await db.read();
             return db.data.leaderboard.find(l => l.userId === userId) || null;
         },
 
-        async getRank(userId) {
+        async getRank(userId: string) {
             await db.read();
             const sorted = [...db.data.leaderboard].sort((a, b) => b.totalXP - a.totalXP);
             const rank = sorted.findIndex(l => l.userId === userId) + 1;
@@ -145,14 +144,14 @@ export function createDAL(db) {
             return { rank: rank || null, entry, totalPlayers: sorted.length };
         },
 
-        async create(entry) {
+        async create(entry: LeaderboardEntry) {
             await db.read();
             db.data.leaderboard.push(entry);
             await db.write();
             return entry;
         },
 
-        async update(userId, updates) {
+        async update(userId: string, updates: Partial<LeaderboardEntry>) {
             await db.read();
             const entry = db.data.leaderboard.find(l => l.userId === userId);
             if (!entry) return null;
@@ -170,7 +169,7 @@ export function createDAL(db) {
     // ======================== GENERATED QUESTIONS ========================
 
     const generatedQuestions = {
-        async add(question) {
+        async add(question: GeneratedQuestion) {
             await db.read();
             db.data.generatedQuestions = db.data.generatedQuestions || [];
             db.data.generatedQuestions.push(question);
@@ -178,26 +177,26 @@ export function createDAL(db) {
             return question;
         },
 
-        async addBatch(questions) {
+        async addBatch(questions: GeneratedQuestion[]) {
             await db.read();
             db.data.generatedQuestions = db.data.generatedQuestions || [];
             db.data.generatedQuestions.push(...questions);
             await db.write();
         },
 
-        async findById(id) {
+        async findById(id: string) {
             await db.read();
             return (db.data.generatedQuestions || []).find(q => q.id === id) || null;
         },
 
-        async list({ reviewed } = {}) {
+        async list({ reviewed }: { reviewed?: boolean } = {}) {
             await db.read();
             const all = db.data.generatedQuestions || [];
             if (reviewed === undefined) return all;
             return all.filter(q => q.reviewed === reviewed);
         },
 
-        async review(id, { approved, reviewedBy, specialty }) {
+        async review(id: string, { approved, reviewedBy, specialty }: { approved: boolean; reviewedBy: string; specialty?: string }) {
             await db.read();
             const idx = (db.data.generatedQuestions || []).findIndex(q => q.id === id);
             if (idx === -1) return null;
@@ -219,7 +218,7 @@ export function createDAL(db) {
         /** Get all PMIDs already processed (for dedup in background generator) */
         async getProcessedPmids() {
             await db.read();
-            const pmids = new Set();
+            const pmids = new Set<string>();
             for (const q of db.data.generatedQuestions || []) {
                 if (q.source?.pmid) pmids.add(q.source.pmid);
             }
@@ -230,7 +229,7 @@ export function createDAL(db) {
     // ======================== SRS RECORDS ========================
 
     const srsRecords = {
-        async findByUserAndQuestion(userId, questionId) {
+        async findByUserAndQuestion(userId: string, questionId: string) {
             await db.read();
             db.data.srsRecords = db.data.srsRecords || [];
             return db.data.srsRecords.find(
@@ -238,18 +237,18 @@ export function createDAL(db) {
             ) || null;
         },
 
-        async findByUser(userId) {
+        async findByUser(userId: string) {
             await db.read();
             return (db.data.srsRecords || []).filter(r => r.userId === userId);
         },
 
-        async getAll(userId) {
+        async getAll(userId?: string) {
             await db.read();
             db.data.srsRecords = db.data.srsRecords || [];
             return db.data.srsRecords;
         },
 
-        async create(record) {
+        async create(record: SRSRecord) {
             await db.read();
             db.data.srsRecords = db.data.srsRecords || [];
             db.data.srsRecords.push(record);
@@ -257,7 +256,7 @@ export function createDAL(db) {
             return record;
         },
 
-        async upsert(userId, questionId, recordOrUpdate) {
+        async upsert(userId: string, questionId: string, recordOrUpdate: SRSRecord) {
             await db.read();
             db.data.srsRecords = db.data.srsRecords || [];
             const idx = db.data.srsRecords.findIndex(
@@ -272,14 +271,14 @@ export function createDAL(db) {
             return recordOrUpdate;
         },
 
-        async exists(userId, questionId) {
+        async exists(userId: string, questionId: string) {
             await db.read();
             return (db.data.srsRecords || []).some(
                 r => r.questionId === questionId && r.userId === userId
             );
         },
 
-        async createBatch(records) {
+        async createBatch(records: SRSRecord[]) {
             await db.read();
             db.data.srsRecords = db.data.srsRecords || [];
             db.data.srsRecords.push(...records);
@@ -290,7 +289,7 @@ export function createDAL(db) {
     // ======================== PAYMENTS ========================
 
     const payments = {
-        async create(payment) {
+        async create(payment: Payment) {
             await db.read();
             if (!db.data.payments) db.data.payments = [];
             db.data.payments.push(payment);
@@ -312,12 +311,12 @@ export function createDAL(db) {
             return db.data.groups || [];
         },
 
-        async findById(id) {
+        async findById(id: string) {
             await db.read();
             return (db.data.groups || []).find(g => g.id === id) || null;
         },
 
-        async create(group) {
+        async create(group: Group) {
             await db.read();
             if (!db.data.groups) db.data.groups = [];
             db.data.groups.push(group);
@@ -325,7 +324,7 @@ export function createDAL(db) {
             return group;
         },
 
-        async addMember(groupId, userId) {
+        async addMember(groupId: string, userId: string) {
             await db.read();
             const group = (db.data.groups || []).find(g => g.id === groupId);
             if (!group) return null;
@@ -334,7 +333,7 @@ export function createDAL(db) {
             return group;
         },
 
-        async removeMember(groupId, userId) {
+        async removeMember(groupId: string, userId: string) {
             await db.read();
             const group = (db.data.groups || []).find(g => g.id === groupId);
             if (!group) return null;
@@ -347,7 +346,7 @@ export function createDAL(db) {
     // ======================== CHALLENGES ========================
 
     const challenges = {
-        async create(challenge) {
+        async create(challenge: Challenge) {
             await db.read();
             if (!db.data.challenges) db.data.challenges = [];
             db.data.challenges.push(challenge);
@@ -355,14 +354,14 @@ export function createDAL(db) {
             return challenge;
         },
 
-        async findByCode(code) {
+        async findByCode(code: string) {
             await db.read();
             return (db.data.challenges || []).find(
                 c => c.code === code.toUpperCase() && c.status === 'waiting'
             ) || null;
         },
 
-        async activate(code, opponentId) {
+        async activate(code: string, opponentId: string) {
             await db.read();
             const challenge = (db.data.challenges || []).find(
                 c => c.code === code.toUpperCase() && c.status === 'waiting'
@@ -381,7 +380,7 @@ export function createDAL(db) {
      * Create a full user with progress + leaderboard entries (registration).
      * Runs as a single write transaction.
      */
-    const createUserWithProgress = async (userData, progressData, leaderboardData) => {
+    const createUserWithProgress = async (userData: User, progressData: Progress, leaderboardData: LeaderboardEntry) => {
         await db.read();
         db.data.users.push(userData);
         db.data.progress.push(progressData);
@@ -393,7 +392,7 @@ export function createDAL(db) {
     /**
      * Save progress + update leaderboard + touch lastActive — single write.
      */
-    const saveProgressAndLeaderboard = async (userId, progressUpdates) => {
+    const saveProgressAndLeaderboard = async (userId: string, progressUpdates: Partial<Progress>) => {
         await db.read();
         const pIdx = db.data.progress.findIndex(p => p.userId === userId);
         if (pIdx === -1) return null;
@@ -419,7 +418,7 @@ export function createDAL(db) {
     /**
      * Verify payment + activate subscription + record payment — single write.
      */
-    const activateSubscription = async (userId, { planId, paymentId, orderId, amount, subscriptionEnd }) => {
+    const activateSubscription = async (userId: string, { planId, paymentId, orderId, amount, subscriptionEnd }: SubscriptionActivation) => {
         await db.read();
         const user = db.data.users.find(u => u.id === userId);
         if (!user) return null;

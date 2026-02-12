@@ -1,6 +1,19 @@
 // Spaced Repetition System (SM-2 Algorithm)
 // Optimal review scheduling for long-term retention
 
+import type { SRSRecord, SRSResult, SRSAttempt } from './types.js';
+
+interface SRSStats {
+    total: number;
+    new: number;
+    learning: number;
+    review: number;
+    mastered: number;
+    dueToday: number;
+    overdue: number;
+    streak: number;
+}
+
 /**
  * SM-2 Algorithm Implementation
  * 
@@ -21,11 +34,11 @@
  * @param {number} interval - Current interval in days
  * @returns {Object} - Updated SRS parameters
  */
-export function calculateNextReview(quality, repetition = 0, easeFactor = 2.5, interval = 0) {
+export function calculateNextReview(quality: number, repetition: number = 0, easeFactor: number = 2.5, interval: number = 0): SRSResult {
     // Ensure quality is within bounds
     quality = Math.max(0, Math.min(5, quality));
 
-    let newRepetition, newInterval, newEaseFactor;
+    let newRepetition: number, newInterval: number, newEaseFactor: number;
 
     if (quality < 3) {
         // Failed review - reset
@@ -70,14 +83,14 @@ export function calculateNextReview(quality, repetition = 0, easeFactor = 2.5, i
  * @param {number} avgTimeMs - Average time for this question
  * @returns {number} - Quality rating (0-5)
  */
-export function calculateQuality(correct, timeMs, avgTimeMs = 15000) {
+export function calculateQuality(correct: boolean, timeMs: number, avgTimeMs: number = 15000): number {
     if (!correct) {
         // Incorrect answers
         return timeMs < avgTimeMs ? 1 : 0;
     }
 
     // Correct answers - rate based on speed
-    const speedRatio = timeMs / avgTimeMs;
+    const speedRatio: number = timeMs / avgTimeMs;
 
     if (speedRatio < 0.5) return 5;  // Very fast
     if (speedRatio < 0.8) return 4;  // Fast
@@ -91,8 +104,8 @@ export function calculateQuality(correct, timeMs, avgTimeMs = 15000) {
  * @param {string} userId - User ID
  * @returns {Array} - Questions due today
  */
-export function getDueQuestions(questions, userId) {
-    const today = new Date().toISOString().split('T')[0];
+export function getDueQuestions(questions: SRSRecord[], userId: string): SRSRecord[] {
+    const today: string = new Date().toISOString().split('T')[0];
 
     return questions.filter(q => {
         if (q.userId !== userId) return false;
@@ -118,11 +131,11 @@ export function getDueQuestions(questions, userId) {
  * @param {string} userId - User ID
  * @returns {Object} - SRS statistics
  */
-export function getSRSStats(questions, userId) {
-    const userQuestions = questions.filter(q => q.userId === userId);
-    const today = new Date().toISOString().split('T')[0];
+export function getSRSStats(questions: SRSRecord[], userId: string): SRSStats {
+    const userQuestions: SRSRecord[] = questions.filter(q => q.userId === userId);
+    const today: string = new Date().toISOString().split('T')[0];
 
-    const stats = {
+    const stats: SRSStats = {
         total: userQuestions.length,
         new: 0,
         learning: 0,
@@ -163,7 +176,7 @@ export function getSRSStats(questions, userId) {
  * @param {string} userId - User ID
  * @returns {Object} - Initial SRS record
  */
-export function initSRSRecord(questionId, userId) {
+export function initSRSRecord(questionId: string, userId: string): SRSRecord {
     return {
         questionId,
         userId,
@@ -184,9 +197,9 @@ export function initSRSRecord(questionId, userId) {
  * @param {number} timeMs - Time taken
  * @returns {Object} - Updated SRS record
  */
-export function updateSRSRecord(record, correct, timeMs) {
-    const quality = calculateQuality(correct, timeMs);
-    const result = calculateNextReview(
+export function updateSRSRecord(record: SRSRecord, correct: boolean, timeMs: number): SRSRecord {
+    const quality: number = calculateQuality(correct, timeMs);
+    const result: SRSResult = calculateNextReview(
         quality,
         record.repetition,
         record.easeFactor,

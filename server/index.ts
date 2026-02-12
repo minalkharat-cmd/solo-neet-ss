@@ -11,6 +11,8 @@ import { JSONFile } from 'lowdb/node';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
+import type { DAL, BackgroundGenerator, DatabaseData } from './types.js';
+import type { Request, Response, NextFunction } from 'express';
 
 // Lib
 import logger from './lib/logger.js';
@@ -60,9 +62,9 @@ const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('he
 
 // ============ DATABASE ============
 
-const defaultData = { users: [], progress: [], leaderboard: [], generatedQuestions: [] };
-const adapter = new JSONFile(join(__dirname, 'db.json'));
-const db = new Low(adapter, defaultData);
+const defaultData: DatabaseData = { users: [], progress: [], leaderboard: [], generatedQuestions: [] };
+const adapter = new JSONFile<DatabaseData>(join(__dirname, 'db.json'));
+const db = new Low<DatabaseData>(adapter, defaultData);
 
 await db.read();
 db.data ||= defaultData;
@@ -126,15 +128,15 @@ const adminMiddleware = createAdminMiddleware(dal);
 
 // ============ LLM PROVIDER STATE ============
 
-let llmProvider = process.env.LLM_PROVIDER || 'ollama';
-const getLlmProvider = () => llmProvider;
-const setLlmProvider = (p) => { llmProvider = p; logger.info('LLM provider switched', { provider: p }); };
+let llmProvider: string = process.env.LLM_PROVIDER || 'ollama';
+const getLlmProvider: () => string = () => llmProvider;
+const setLlmProvider: (p: string) => void = (p) => { llmProvider = p; logger.info('LLM provider switched', { provider: p }); };
 
 // ============ HEALTH CHECK ============
 
-const startTime = Date.now();
+const startTime: number = Date.now();
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (req: Request, res: Response) => {
     res.json({
         status: 'ok',
         uptime: Math.floor((Date.now() - startTime) / 1000),
@@ -142,7 +144,7 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-app.get('/api/health/ready', async (req, res) => {
+app.get('/api/health/ready', async (req: Request, res: Response) => {
     try {
         // Verify DB is readable
         await db.read();
@@ -151,8 +153,8 @@ app.get('/api/health/ready', async (req, res) => {
             database: 'ok',
             uptime: Math.floor((Date.now() - startTime) / 1000),
         });
-    } catch (err) {
-        res.status(503).json({ status: 'not ready', database: 'error', error: err.message });
+    } catch (err: unknown) {
+        res.status(503).json({ status: 'not ready', database: 'error', error: (err as Error).message });
     }
 });
 
@@ -208,7 +210,7 @@ app.post('/api/notifications/test-push', authMiddleware, adminMiddleware, async 
 const httpServer = createServer(app);
 const { matchmakingQueue, battleRooms } = initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins });
 
-app.get('/api/pvp/status', (req, res) => {
+app.get('/api/pvp/status', (req: Request, res: Response) => {
     res.json({
         playersInQueue: matchmakingQueue.length,
         activeBattles: Object.keys(battleRooms).length
@@ -217,9 +219,9 @@ app.get('/api/pvp/status', (req, res) => {
 
 // ============ BACKGROUND GENERATOR ============
 
-let backgroundGenerator = null;
+let backgroundGenerator: BackgroundGenerator | null = null;
 
-app.get('/api/generator/status', (req, res) => {
+app.get('/api/generator/status', (req: Request, res: Response) => {
     if (backgroundGenerator) {
         res.json({ enabled: true, ...backgroundGenerator.getStats() });
     } else {
@@ -227,7 +229,7 @@ app.get('/api/generator/status', (req, res) => {
     }
 });
 
-app.post('/api/generator/run', authMiddleware, adminMiddleware, (req, res) => {
+app.post('/api/generator/run', authMiddleware, adminMiddleware, (req: Request, res: Response) => {
     if (!backgroundGenerator) {
         return res.status(503).json({ error: 'Generator not enabled' });
     }
@@ -246,7 +248,7 @@ initFirebaseAdmin();
 startNotificationScheduler(dal);
 
 // Register graceful shutdown callbacks
-onShutdown('HTTP server', () => new Promise((resolve) => httpServer.close(resolve)));
+onShutdown('HTTP server', () => new Promise<void>((resolve, reject) => httpServer.close((err) => err ? reject(err) : resolve())));
 onShutdown('Database flush', () => db.write());
 
 httpServer.listen(PORT, () => {

@@ -1,12 +1,18 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { Server } from 'socket.io';
+import { Server, type Socket } from 'socket.io';
 import { battleQuestions } from './battleQuestions.js';
 import { sanitizeInput } from '../middleware/validation.js';
 import logger from '../lib/logger.js';
+import type { DAL, BattleQuestion, BattleRoom, PvPPlayer, PrivateRoom } from '../types.js';
+
+// Extend Socket.io Socket with userId from JWT auth
+interface AuthenticatedSocket extends Socket {
+    userId: string;
+}
 
 // Fisher-Yates shuffle — unbiased
-const fisherYatesShuffle = (arr) => {
+const fisherYatesShuffle = <T>(arr: T[]): T[] => {
     const shuffled = [...arr];
     for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -15,7 +21,7 @@ const fisherYatesShuffle = (arr) => {
     return shuffled;
 };
 
-const generateRoomCode = () => {
+const generateRoomCode = (): string => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
     for (let i = 0; i < 6; i++) {
@@ -24,7 +30,7 @@ const generateRoomCode = () => {
     return code;
 };
 
-const getBattleQuestions = (count = 10) => {
+const getBattleQuestions = (count: number = 10): BattleQuestion[] => {
     return fisherYatesShuffle(battleQuestions).slice(0, count);
 };
 
@@ -32,7 +38,7 @@ const getBattleQuestions = (count = 10) => {
  * Initialize Socket.io PvP system.
  * @param {object} deps.dal — Data Access Layer
  */
-export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
+export function initPvPSocket(httpServer: import('http').Server, { dal, JWT_SECRET, allowedOrigins }: { dal: DAL; JWT_SECRET: string; allowedOrigins: string[] }) {
     const io = new Server(httpServer, {
         cors: {
             origin: allowedOrigins,
@@ -41,10 +47,10 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
         }
     });
 
-    const matchmakingQueue = [];
-    const battleRooms = {};
-    const playerSockets = {};
-    const privateRooms = {};
+    const matchmakingQueue: PvPPlayer[] = [];
+    const battleRooms: Record<string, BattleRoom> = {};
+    const playerSockets: Record<string, PvPPlayer> = {};
+    const privateRooms: Record<string, PrivateRoom> = {};
 
     // Socket.io JWT authentication middleware
     io.use((socket, next) => {
@@ -53,17 +59,17 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
             return next(new Error('Authentication required'));
         }
         try {
-            const decoded = jwt.verify(token, JWT_SECRET);
-            socket.userId = decoded.userId;
+            const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+            (socket as AuthenticatedSocket).userId = decoded.userId;
             next();
         } catch (err) {
             return next(new Error('Invalid token'));
         }
     });
 
-    const generateId = () => crypto.randomUUID();
+    const generateId = (): string => crypto.randomUUID();
 
-    const createBattleRoom = (player1, player2, isRanked = true) => {
+    const createBattleRoom = (player1: PvPPlayer, player2: PvPPlayer, isRanked: boolean = true): BattleRoom => {
         const roomId = generateId();
         const questions = getBattleQuestions(10);
 
@@ -84,7 +90,7 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
         return battleRooms[roomId];
     };
 
-    const endBattle = (roomId) => {
+    const endBattle = (roomId: string): void => {
         const room = battleRooms[roomId];
         if (!room) return;
 
@@ -92,12 +98,12 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
         room.finishedAt = Date.now();
 
         const [player1, player2] = room.players;
-        let winner = null;
+        let winner: PvPPlayer | null = null;
         let isDraw = false;
 
-        if (player1.score > player2.score) {
+        if ((player1.score ?? 0) > (player2.score ?? 0)) {
             winner = player1;
-        } else if (player2.score > player1.score) {
+        } else if ((player2.score ?? 0) > (player1.score ?? 0)) {
             winner = player2;
         } else {
             isDraw = true;
@@ -124,7 +130,8 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
         }, 30000);
     };
 
-    io.on('connection', async (socket) => {
+    io.on('connection', async (rawSocket) => {
+        const socket = rawSocket as AuthenticatedSocket;
         logger.info('PvP client connected', { socketId: socket.id, userId: socket.userId });
 
         socket.on('register', async (userData) => {
@@ -156,8 +163,8 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
             socket.emit('queueJoined', { position: matchmakingQueue.length });
 
             if (matchmakingQueue.length >= 2) {
-                const player1 = matchmakingQueue.shift();
-                const player2 = matchmakingQueue.shift();
+                const player1 = matchmakingQueue.shift()!;
+                const player2 = matchmakingQueue.shift()!;
                 const room = createBattleRoom(player1, player2);
 
                 const socket1 = io.sockets.sockets.get(player1.id);
@@ -274,8 +281,8 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
             const points = isCorrect ? (10 + Math.floor(timeLeft / 2)) : 0;
 
             room.answers[answerKey] = { answer, isCorrect, points };
-            room.players[playerIndex].answered++;
-            if (isCorrect) room.players[playerIndex].score += points;
+            room.players[playerIndex].answered = (room.players[playerIndex].answered ?? 0) + 1;
+            if (isCorrect) room.players[playerIndex].score = (room.players[playerIndex].score ?? 0) + points;
 
             io.to(roomId).emit('answerSubmitted', {
                 playerIndex, questionIndex, isCorrect,
@@ -324,7 +331,7 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
         });
         Object.keys(battleRooms).forEach(roomId => {
             const room = battleRooms[roomId];
-            if (room.finished && now - (room.finishedAt || room.startedAt) > 10 * 60 * 1000) delete battleRooms[roomId];
+            if (room.status === 'finished' && now - (room.finishedAt || room.startTime || 0) > 10 * 60 * 1000) delete battleRooms[roomId];
         });
         Object.keys(playerSockets).forEach(socketId => {
             if (!io.sockets.sockets.get(socketId)) delete playerSockets[socketId];
