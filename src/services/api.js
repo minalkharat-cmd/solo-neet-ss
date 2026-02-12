@@ -1,5 +1,5 @@
 // Solo NEET SS - API Service Layer
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // Token management
 const getToken = () => localStorage.getItem('soloNeetSS_token');

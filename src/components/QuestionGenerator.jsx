@@ -39,7 +39,7 @@ export default function QuestionGenerator({ onClose, onQuestionGenerated }) {
         setError('');
 
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3002'}/api/pubmed/search`, {
+            const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/pubmed/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query, limit: 5 }),
@@ -78,7 +78,7 @@ export default function QuestionGenerator({ onClose, onQuestionGenerated }) {
 
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3002'}/api/pubmed/generate`, {
+            const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/pubmed/generate`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

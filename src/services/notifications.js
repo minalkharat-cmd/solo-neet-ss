@@ -67,7 +67,7 @@ export const onForegroundMessage = (callback) => {
  * Register FCM token with the server
  */
 export const registerTokenWithServer = async (fcmToken) => {
-    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+    const API_BASE = import.meta.env.VITE_API_URL || '';
     const authToken = localStorage.getItem('soloNeetSS_token');
     if (!authToken) return;
 

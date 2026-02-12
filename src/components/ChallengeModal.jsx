@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export const ChallengeModal = ({ onClose, onStartChallenge }) => {
     const [mode, setMode] = useState('menu'); // menu | create | join

@@ -251,7 +251,7 @@ startNotificationScheduler(dal);
 onShutdown('HTTP server', () => new Promise<void>((resolve, reject) => httpServer.close((err) => err ? reject(err) : resolve())));
 onShutdown('Database flush', () => db.write());
 
-httpServer.listen(PORT, () => {
+httpServer.listen(Number(PORT), '0.0.0.0', () => {
     logger.info('Server started', {
         port: PORT,
         database: 'db.json',
