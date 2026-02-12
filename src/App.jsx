@@ -17,6 +17,7 @@ import { StudyGroups } from './components/StudyGroups';
 import { ChallengeModal } from './components/ChallengeModal';
 import { NotificationBell } from './components/NotificationBell';
 import { PremiumModal } from './components/PremiumModal';
+import { BrainExplorer } from './components/BrainExplorer';
 import { setToken, getToken, getMe, saveProgress, logout } from './services/api';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
@@ -579,6 +580,7 @@ function App() {
   const [showChallenge, setShowChallenge] = useState(false);
   const [showDungeonBreak, setShowDungeonBreak] = useState(false);
   const [showPremium, setShowPremium] = useState(false);
+  const [showBrainExplorer, setShowBrainExplorer] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastDailyRewardClaim, setLastDailyRewardClaim] = useState(() => {
@@ -733,6 +735,7 @@ function App() {
               <button className="btn-icon nav-btn" onClick={() => setShowReviewDashboard(true)} title="Review AI Questions">📋</button>
               <button className="btn-icon nav-btn" onClick={() => setShowAnalytics(true)} title="Analytics Dashboard">📊</button>
               <button className="btn-icon nav-btn" onClick={() => setShowStudyGroups(true)} title="Study Groups">👥</button>
+              <button className="btn-icon nav-btn" onClick={() => setShowBrainExplorer(true)} title="Brain Atlas">🧠</button>
               <button className="btn-icon nav-btn" onClick={() => setShowChallenge(true)} title="Challenge Friend">⚔️</button>
               <NotificationBell />
             </>
@@ -906,6 +909,16 @@ function App() {
       )}
       {showChallenge && (
         <ChallengeModal onClose={() => setShowChallenge(false)} />
+      )}
+
+      {showBrainExplorer && (
+        <ErrorBoundary fallbackMessage="Brain Explorer encountered an error. Please try again.">
+          <BrainExplorer
+            onClose={() => setShowBrainExplorer(false)}
+            addXP={addXP}
+            soundEnabled={soundEnabled}
+          />
+        </ErrorBoundary>
       )}
 
       {showDungeonBreak && (
