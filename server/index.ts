@@ -85,12 +85,24 @@ if (!isProduction) {
 app.use(requestIdMiddleware);
 
 app.use(helmet({
-    contentSecurityPolicy: isProduction ? undefined : false,
+    contentSecurityPolicy: isProduction ? {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            imgSrc: ["'self'", "data:", "blob:"],
+            connectSrc: ["'self'", "https://checkout.razorpay.com"],
+        },
+    } : false,
 }));
 
 app.use(cors({
     origin: (origin, callback) => {
+        // In production, same-origin requests have no origin header
         if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else if (isProduction && process.env.RENDER_EXTERNAL_URL && origin === process.env.RENDER_EXTERNAL_URL) {
             callback(null, true);
         } else {
             logger.warn('CORS blocked origin', { origin });
@@ -236,6 +248,20 @@ app.post('/api/generator/run', authMiddleware, adminMiddleware, (req: Request, r
     backgroundGenerator.forceRun();
     res.json({ message: 'Generation cycle started' });
 });
+
+// ============ STATIC FRONTEND (production only) ============
+
+if (isProduction) {
+    const clientDist = join(__dirname, '..', '..', 'dist');
+    app.use(express.static(clientDist));
+    // SPA fallback — serve index.html for non-API routes
+    app.get('*', (_req: Request, res: Response, next: NextFunction) => {
+        if (_req.path.startsWith('/api') || _req.path.startsWith('/socket.io')) {
+            return next();
+        }
+        res.sendFile(join(clientDist, 'index.html'));
+    });
+}
 
 // ============ ERROR HANDLING (must be last) ============
 
