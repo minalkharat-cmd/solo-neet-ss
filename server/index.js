@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 
 // Internal modules
+import { createDAL } from './dal.js';
 import { createAuthMiddleware, createAdminMiddleware } from './middleware/auth.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createProgressRoutes } from './routes/progress.js';
@@ -54,6 +55,9 @@ const db = new Low(adapter, defaultData);
 await db.read();
 db.data ||= defaultData;
 await db.write();
+
+// Create Data Access Layer
+const dal = createDAL(db);
 
 // ============ MIDDLEWARE ============
 
@@ -105,7 +109,7 @@ app.use('/api/', apiLimiter);
 
 // Create auth middleware instances
 const authMiddleware = createAuthMiddleware(JWT_SECRET);
-const adminMiddleware = createAdminMiddleware(db);
+const adminMiddleware = createAdminMiddleware(dal);
 
 // ============ LLM PROVIDER STATE ============
 
@@ -115,7 +119,7 @@ const setLlmProvider = (p) => { llmProvider = p; console.log(`LLM provider switc
 
 // ============ MOUNT ROUTES ============
 
-const deps = { db, JWT_SECRET, authMiddleware, adminMiddleware, authLimiter, isProduction, FRONTEND_URL };
+const deps = { dal, JWT_SECRET, authMiddleware, adminMiddleware, authLimiter, isProduction, FRONTEND_URL };
 
 app.use('/api/auth', createAuthRoutes(deps));
 app.use('/api/progress', createProgressRoutes(deps));
@@ -128,8 +132,7 @@ app.use('/api/payment', createSubscriptionRoutes(deps));
 
 app.get('/api/analytics/personal', authMiddleware, async (req, res) => {
     try {
-        await db.read();
-        const analytics = getPersonalAnalytics(db, req.userId);
+        const analytics = await getPersonalAnalytics(dal, req.userId);
         if (!analytics) return res.status(404).json({ error: 'No analytics data found' });
         res.json(analytics);
     } catch (error) {
@@ -140,8 +143,7 @@ app.get('/api/analytics/personal', authMiddleware, async (req, res) => {
 
 app.get('/api/analytics/engagement', authMiddleware, async (req, res) => {
     try {
-        await db.read();
-        const metrics = getEngagementMetrics(db);
+        const metrics = await getEngagementMetrics(dal);
         res.json(metrics);
     } catch (error) {
         console.error('Engagement metrics error:', error);
@@ -151,12 +153,12 @@ app.get('/api/analytics/engagement', authMiddleware, async (req, res) => {
 
 // ============ SOCIAL & NOTIFICATIONS ============
 
-registerSocialRoutes(app, db, authMiddleware);
-registerNotificationRoutes(app, db, authMiddleware);
+registerSocialRoutes(app, dal, authMiddleware);
+registerNotificationRoutes(app, dal, authMiddleware);
 
 app.post('/api/notifications/test-push', authMiddleware, adminMiddleware, async (req, res) => {
     const { title, body } = req.body;
-    const result = await sendPushToUser(db, req.userId, {
+    const result = await sendPushToUser(dal, req.userId, {
         title: title || 'Test Notification',
         body: body || 'If you see this, push notifications are working!',
         tag: 'test'
@@ -167,7 +169,7 @@ app.post('/api/notifications/test-push', authMiddleware, adminMiddleware, async 
 // ============ PVP (Socket.io) ============
 
 const httpServer = createServer(app);
-const { matchmakingQueue, battleRooms } = initPvPSocket(httpServer, { db, JWT_SECRET, allowedOrigins });
+const { matchmakingQueue, battleRooms } = initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins });
 
 app.get('/api/pvp/status', async (req, res) => {
     res.json({
@@ -199,7 +201,7 @@ app.post('/api/generator/run', authMiddleware, adminMiddleware, (req, res) => {
 // ============ START SERVER ============
 
 initFirebaseAdmin();
-startNotificationScheduler(db);
+startNotificationScheduler(dal);
 
 httpServer.listen(PORT, () => {
     console.log(`Solo NEET SS Server running on http://localhost:${PORT}`);
@@ -207,7 +209,7 @@ httpServer.listen(PORT, () => {
     console.log(`PvP Battles: Enabled`);
 
     if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY') {
-        backgroundGenerator = initBackgroundGenerator(db, 30);
+        backgroundGenerator = initBackgroundGenerator(dal, 30);
         console.log('Background Question Generator: ACTIVE');
     } else {
         console.log('Background Question Generator: DISABLED (set GEMINI_API_KEY)');

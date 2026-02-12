@@ -6,7 +6,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import crypto from 'crypto';
 import { sanitizeInput, validatePassword, validateEmail } from '../middleware/validation.js';
 
-export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, isProduction, FRONTEND_URL }) {
+export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter, isProduction, FRONTEND_URL }) {
     const router = Router();
 
     const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -14,10 +14,8 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
     const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || `http://localhost:${process.env.PORT || 3002}/api/auth/google/callback`;
     const googleOAuthEnabled = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
 
-    // Generate cryptographically secure unique ID
     const generateId = () => crypto.randomUUID();
 
-    // Rank helper
     const getRank = (level) => {
         if (level >= 81) return 'S';
         if (level >= 61) return 'A';
@@ -27,29 +25,15 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
         return 'E';
     };
 
-    // Helper to create user and initial data
     const createUserWithProgress = async (userData) => {
-        await db.read();
         const userId = generateId();
-        const newUser = {
-            id: userId,
-            ...userData,
-            createdAt: new Date().toISOString()
-        };
+        const newUser = { id: userId, ...userData, createdAt: new Date().toISOString() };
 
-        db.data.users.push(newUser);
-
-        db.data.progress.push({
-            userId,
-            level: 1,
-            currentXP: 0,
-            totalXP: 0,
-            questionsAnswered: 0,
-            correctAnswers: 0,
-            currentStreak: 0,
-            bestStreak: 0,
-            dungeonsCleared: 0,
-            perfectDungeons: 0,
+        const progressData = {
+            userId, level: 1, currentXP: 0, totalXP: 0,
+            questionsAnswered: 0, correctAnswers: 0,
+            currentStreak: 0, bestStreak: 0,
+            dungeonsCleared: 0, perfectDungeons: 0,
             achievements: [],
             subjectProgress: {
                 cardiology: { answered: 0, correct: 0 },
@@ -65,18 +49,14 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
                 critical: { answered: 0, correct: 0 },
                 neonatology: { answered: 0, correct: 0 }
             }
-        });
+        };
 
-        db.data.leaderboard.push({
-            userId,
-            username: newUser.username,
-            hunterName: newUser.hunterName,
-            level: 1,
-            totalXP: 0,
-            rank: 'E'
-        });
+        const leaderboardData = {
+            userId, username: newUser.username, hunterName: newUser.hunterName,
+            level: 1, totalXP: 0, rank: 'E'
+        };
 
-        await db.write();
+        await dal.createUserWithProgress(newUser, progressData, leaderboardData);
         return newUser;
     };
 
@@ -89,22 +69,21 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
         },
             async (accessToken, refreshToken, profile, done) => {
                 try {
-                    await db.read();
-                    let user = db.data.users.find(u => u.googleId === profile.id);
+                    let user = await dal.users.findByGoogleId(profile.id);
 
                     if (!user) {
                         const email = profile.emails?.[0]?.value;
-                        user = db.data.users.find(u => u.email === email);
+                        user = await dal.users.findByEmail(email);
 
                         if (user) {
-                            user.googleId = profile.id;
-                            user.avatar = profile.photos?.[0]?.value;
-                            await db.write();
+                            await dal.users.update(user.id, {
+                                googleId: profile.id,
+                                avatar: profile.photos?.[0]?.value
+                            });
                         } else {
                             const username = profile.displayName?.replace(/\s+/g, '_').toLowerCase() || `hunter_${generateId().slice(0, 6)}`;
                             user = await createUserWithProgress({
-                                username,
-                                email,
+                                username, email,
                                 googleId: profile.id,
                                 hunterName: profile.displayName || 'Hunter',
                                 avatar: profile.photos?.[0]?.value,
@@ -121,44 +100,28 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
         ));
 
         router.get('/google',
-            passport.authenticate('google', {
-                scope: ['profile', 'email'],
-                session: false
-            })
+            passport.authenticate('google', { scope: ['profile', 'email'], session: false })
         );
 
         router.get('/google/callback',
-            passport.authenticate('google', {
-                session: false,
-                failureRedirect: `${FRONTEND_URL}?auth=failed`
-            }),
+            passport.authenticate('google', { session: false, failureRedirect: `${FRONTEND_URL}?auth=failed` }),
             (req, res) => {
                 const token = jwt.sign({ userId: req.user.id }, JWT_SECRET, { expiresIn: '7d' });
                 const userAgent = req.headers['user-agent'] || '';
                 const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
 
+                const userParam = encodeURIComponent(JSON.stringify({
+                    id: req.user.id, username: req.user.username,
+                    hunterName: req.user.hunterName, avatar: req.user.avatar
+                }));
+
                 if (isMobile) {
-                    const userParam = encodeURIComponent(JSON.stringify({
-                        id: req.user.id,
-                        username: req.user.username,
-                        hunterName: req.user.hunterName,
-                        avatar: req.user.avatar
-                    }));
                     res.redirect(`com.soloneet.ss://oauth?token=${token}&user=${userParam}`);
                 } else {
                     res.cookie('auth_token', token, {
-                        httpOnly: true,
-                        secure: isProduction,
-                        sameSite: 'lax',
-                        maxAge: 7 * 24 * 60 * 60 * 1000,
-                        path: '/',
+                        httpOnly: true, secure: isProduction, sameSite: 'lax',
+                        maxAge: 7 * 24 * 60 * 60 * 1000, path: '/',
                     });
-                    const userParam = encodeURIComponent(JSON.stringify({
-                        id: req.user.id,
-                        username: req.user.username,
-                        hunterName: req.user.hunterName,
-                        avatar: req.user.avatar
-                    }));
                     res.redirect(`${FRONTEND_URL}?auth=success&user=${userParam}`);
                 }
             }
@@ -195,8 +158,8 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
                 return res.status(400).json({ error: passwordError });
             }
 
-            await db.read();
-            if (db.data.users.find(u => u.email === email || u.username === username)) {
+            const existing = await dal.users.findByEmailOrUsername(email, username);
+            if (existing) {
                 return res.status(400).json({ error: 'Username or email already exists' });
             }
 
@@ -217,8 +180,7 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
     router.post('/login', authLimiter, async (req, res) => {
         try {
             const { email, password } = req.body;
-            await db.read();
-            const user = db.data.users.find(u => u.email === email);
+            const user = await dal.users.findByEmail(email);
 
             if (!user || !user.password) {
                 return res.status(401).json({ error: 'Invalid email or password' });
@@ -233,11 +195,8 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
             res.json({
                 token,
                 user: {
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
-                    hunterName: user.hunterName,
-                    avatar: user.avatar
+                    id: user.id, username: user.username, email: user.email,
+                    hunterName: user.hunterName, avatar: user.avatar
                 }
             });
         } catch (err) {
@@ -249,17 +208,13 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
     // Get current user
     router.get('/me', authMiddleware, async (req, res) => {
         try {
-            await db.read();
-            const user = db.data.users.find(u => u.id === req.userId);
+            const user = await dal.users.findById(req.userId);
             if (!user) return res.status(404).json({ error: 'User not found' });
 
             res.json({
                 user: {
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
-                    hunterName: user.hunterName,
-                    avatar: user.avatar
+                    id: user.id, username: user.username, email: user.email,
+                    hunterName: user.hunterName, avatar: user.avatar
                 }
             });
         } catch (err) {
@@ -268,7 +223,6 @@ export function createAuthRoutes({ db, JWT_SECRET, authMiddleware, authLimiter, 
         }
     });
 
-    // Export helpers for reuse by other modules
     router._helpers = { createUserWithProgress, getRank, generateId };
 
     return router;

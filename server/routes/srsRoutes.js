@@ -1,22 +1,20 @@
 import { Router } from 'express';
 import { getDueQuestions, getSRSStats, initSRSRecord, updateSRSRecord } from '../srs.js';
 
-export function createSRSRoutes({ db, authMiddleware }) {
+export function createSRSRoutes({ dal, authMiddleware }) {
     const router = Router();
 
     // Get due questions for today
     router.get('/due', authMiddleware, async (req, res) => {
-        await db.read();
-        db.data.srsRecords = db.data.srsRecords || [];
-        const dueQuestions = getDueQuestions(db.data.srsRecords, req.userId);
+        const allRecords = await dal.srsRecords.getAll();
+        const dueQuestions = getDueQuestions(allRecords, req.userId);
         res.json({ count: dueQuestions.length, questions: dueQuestions.slice(0, 20) });
     });
 
     // Get SRS statistics
     router.get('/stats', authMiddleware, async (req, res) => {
-        await db.read();
-        db.data.srsRecords = db.data.srsRecords || [];
-        const stats = getSRSStats(db.data.srsRecords, req.userId);
+        const allRecords = await dal.srsRecords.getAll();
+        const stats = getSRSStats(allRecords, req.userId);
         res.json(stats);
     });
 
@@ -27,25 +25,13 @@ export function createSRSRoutes({ db, authMiddleware }) {
             return res.status(400).json({ error: 'questionId required' });
         }
 
-        await db.read();
-        db.data.srsRecords = db.data.srsRecords || [];
-
-        let recordIndex = db.data.srsRecords.findIndex(
-            r => r.questionId === questionId && r.userId === req.userId
-        );
-
-        let record;
-        if (recordIndex === -1) {
+        let record = await dal.srsRecords.findByUserAndQuestion(req.userId, questionId);
+        if (!record) {
             record = initSRSRecord(questionId, req.userId);
-            db.data.srsRecords.push(record);
-            recordIndex = db.data.srsRecords.length - 1;
-        } else {
-            record = db.data.srsRecords[recordIndex];
         }
 
         const updatedRecord = updateSRSRecord(record, correct, timeMs || 15000);
-        db.data.srsRecords[recordIndex] = updatedRecord;
-        await db.write();
+        await dal.srsRecords.upsert(req.userId, questionId, updatedRecord);
 
         res.json({
             success: true,
@@ -62,22 +48,19 @@ export function createSRSRoutes({ db, authMiddleware }) {
             return res.status(400).json({ error: 'questionIds array required' });
         }
 
-        await db.read();
-        db.data.srsRecords = db.data.srsRecords || [];
-
-        let added = 0;
+        const newRecords = [];
         for (const questionId of questionIds) {
-            const exists = db.data.srsRecords.some(
-                r => r.questionId === questionId && r.userId === req.userId
-            );
+            const exists = await dal.srsRecords.exists(req.userId, questionId);
             if (!exists) {
-                db.data.srsRecords.push(initSRSRecord(questionId, req.userId));
-                added++;
+                newRecords.push(initSRSRecord(questionId, req.userId));
             }
         }
 
-        await db.write();
-        res.json({ success: true, added });
+        if (newRecords.length > 0) {
+            await dal.srsRecords.createBatch(newRecords);
+        }
+
+        res.json({ success: true, added: newRecords.length });
     });
 
     return router;

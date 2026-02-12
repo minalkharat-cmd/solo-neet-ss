@@ -4,7 +4,6 @@ import jwt from 'jsonwebtoken';
  * Creates auth and admin middleware closures over shared dependencies.
  */
 export function createAuthMiddleware(JWT_SECRET) {
-    // Auth middleware — accepts Bearer token or HTTP-only cookie
     const authMiddleware = (req, res, next) => {
         const token = req.headers.authorization?.split(' ')[1] || req.cookies?.auth_token;
         if (!token) {
@@ -22,10 +21,9 @@ export function createAuthMiddleware(JWT_SECRET) {
     return authMiddleware;
 }
 
-export function createAdminMiddleware(db) {
+export function createAdminMiddleware(dal) {
     const adminMiddleware = async (req, res, next) => {
-        await db.read();
-        const user = db.data.users.find(u => u.id === req.userId);
+        const user = await dal.users.findById(req.userId);
         if (!user?.isAdmin) {
             return res.status(403).json({ error: 'Admin access required' });
         }

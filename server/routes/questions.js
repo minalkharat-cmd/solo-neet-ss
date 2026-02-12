@@ -3,7 +3,7 @@ import { searchAndFetchAbstracts } from '../pubmed.js';
 import { generateQuestionsFromArticles } from '../questionGenerator.js';
 import { generateQuestionsFromArticles as generateWithOllama, checkOllamaStatus } from '../ollamaClient.js';
 
-export function createQuestionRoutes({ db, authMiddleware, adminMiddleware, getLlmProvider, setLlmProvider }) {
+export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, getLlmProvider, setLlmProvider }) {
     const router = Router();
 
     // Search PubMed articles
@@ -54,15 +54,12 @@ export function createQuestionRoutes({ db, authMiddleware, adminMiddleware, getL
                 result = await generateQuestionsFromArticles(articles, specialty);
             }
 
-            await db.read();
-            db.data.generatedQuestions = db.data.generatedQuestions || [];
             for (const question of result.questions) {
                 question.generatedBy = req.userId;
                 question.generatedAt = new Date().toISOString();
                 question.llmProvider = useProvider;
-                db.data.generatedQuestions.push(question);
+                await dal.generatedQuestions.add(question);
             }
-            await db.write();
 
             res.json({
                 success: true,
@@ -115,13 +112,8 @@ export function createQuestionRoutes({ db, authMiddleware, adminMiddleware, getL
 
     // Get generated questions
     router.get('/questions/generated', authMiddleware, async (req, res) => {
-        await db.read();
-        const questions = db.data.generatedQuestions || [];
         const reviewed = req.query.reviewed === 'true' ? true : req.query.reviewed === 'false' ? false : undefined;
-        let filtered = questions;
-        if (reviewed !== undefined) {
-            filtered = questions.filter(q => q.reviewed === reviewed);
-        }
+        const filtered = await dal.generatedQuestions.list({ reviewed });
         res.json({ total: filtered.length, questions: filtered.slice(-50) });
     });
 
@@ -129,19 +121,14 @@ export function createQuestionRoutes({ db, authMiddleware, adminMiddleware, getL
     router.patch('/questions/generated/:id', authMiddleware, async (req, res) => {
         const { id } = req.params;
         const { approved, specialty } = req.body;
-        await db.read();
-        const questionIndex = db.data.generatedQuestions.findIndex(q => q.id === id);
-        if (questionIndex === -1) {
+        const result = await dal.generatedQuestions.review(id, {
+            approved,
+            reviewedBy: req.userId,
+            specialty
+        });
+        if (!result) {
             return res.status(404).json({ error: 'Question not found' });
         }
-        db.data.generatedQuestions[questionIndex].reviewed = true;
-        db.data.generatedQuestions[questionIndex].approved = approved;
-        db.data.generatedQuestions[questionIndex].reviewedAt = new Date().toISOString();
-        db.data.generatedQuestions[questionIndex].reviewedBy = req.userId;
-        if (specialty) {
-            db.data.generatedQuestions[questionIndex].specialty = specialty;
-        }
-        await db.write();
         res.json({ success: true });
     });
 

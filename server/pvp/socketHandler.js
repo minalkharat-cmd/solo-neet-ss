@@ -29,9 +29,9 @@ const getBattleQuestions = (count = 10) => {
 
 /**
  * Initialize Socket.io PvP system.
- * Returns { io, httpServer, matchmakingQueue, battleRooms } for status endpoints.
+ * @param {object} deps.dal — Data Access Layer
  */
-export function initPvPSocket(httpServer, { db, JWT_SECRET, allowedOrigins }) {
+export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
     const io = new Server(httpServer, {
         cors: {
             origin: allowedOrigins,
@@ -40,7 +40,6 @@ export function initPvPSocket(httpServer, { db, JWT_SECRET, allowedOrigins }) {
         }
     });
 
-    // Battle state management
     const matchmakingQueue = [];
     const battleRooms = {};
     const playerSockets = {};
@@ -63,7 +62,6 @@ export function initPvPSocket(httpServer, { db, JWT_SECRET, allowedOrigins }) {
 
     const generateId = () => crypto.randomUUID();
 
-    // Create a new battle room
     const createBattleRoom = (player1, player2, isRanked = true) => {
         const roomId = generateId();
         const questions = getBattleQuestions(10);
@@ -85,7 +83,6 @@ export function initPvPSocket(httpServer, { db, JWT_SECRET, allowedOrigins }) {
         return battleRooms[roomId];
     };
 
-    // End battle and determine winner
     const endBattle = (roomId) => {
         const room = battleRooms[roomId];
         if (!room) return;
@@ -126,19 +123,18 @@ export function initPvPSocket(httpServer, { db, JWT_SECRET, allowedOrigins }) {
         }, 30000);
     };
 
-    // Socket.io connection handling
     io.on('connection', async (socket) => {
         console.log(`PvP connected: ${socket.id} (user: ${socket.userId})`);
 
         socket.on('register', async (userData) => {
-            await db.read();
-            const dbUser = db.data.users.find(u => u.id === socket.userId);
+            const dbUser = await dal.users.findById(socket.userId);
+            const progress = await dal.progress.findByUserId(socket.userId);
             playerSockets[socket.id] = {
                 id: socket.id,
                 odid: socket.userId,
                 username: dbUser?.username || sanitizeInput(userData.username, 30) || 'Hunter',
                 hunterName: dbUser?.hunterName || sanitizeInput(userData.hunterName, 50) || 'Hunter',
-                level: dbUser ? (db.data.progress.find(p => p.userId === socket.userId)?.level || 1) : 1,
+                level: progress?.level || 1,
                 avatar: dbUser?.avatar || null
             };
         });

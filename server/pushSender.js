@@ -29,13 +29,11 @@ export const initFirebaseAdmin = () => {
         if (envJson) {
             console.log(`🔑 Env var FIREBASE_SERVICE_ACCOUNT_JSON found (${envJson.length} chars)`);
             try {
-                // Handle potential wrapping in extra quotes
                 let cleaned = envJson.trim();
                 if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
                     cleaned = cleaned.slice(1, -1);
                 }
                 serviceAccount = JSON.parse(cleaned);
-                // Fix double-escaped newlines in private_key
                 if (serviceAccount.private_key) {
                     serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
                 }
@@ -71,12 +69,12 @@ export const initFirebaseAdmin = () => {
 
 /**
  * Send a push notification to a specific user
+ * @param {object} dal — Data Access Layer
  */
-export const sendPushToUser = async (db, userId, notification) => {
+export const sendPushToUser = async (dal, userId, notification) => {
     if (!fcmEnabled) return { sent: 0 };
 
-    await db.read();
-    const user = db.data.users.find(u => u.id === userId);
+    const user = await dal.users.findById(userId);
     if (!user?.fcmTokens?.length) return { sent: 0 };
 
     let sent = 0;
@@ -112,8 +110,8 @@ export const sendPushToUser = async (db, userId, notification) => {
 
     // Remove invalid tokens
     if (invalidTokens.length) {
-        user.fcmTokens = user.fcmTokens.filter(t => !invalidTokens.includes(t));
-        await db.write();
+        const validTokens = user.fcmTokens.filter(t => !invalidTokens.includes(t));
+        await dal.users.update(userId, { fcmTokens: validTokens });
     }
 
     return { sent };
@@ -122,14 +120,13 @@ export const sendPushToUser = async (db, userId, notification) => {
 /**
  * Broadcast to all users with FCM tokens
  */
-const broadcastToAll = async (db, notification) => {
+const broadcastToAll = async (dal, notification) => {
     if (!fcmEnabled) return;
-    await db.read();
-    const usersWithTokens = db.data.users.filter(u => u.fcmTokens?.length > 0);
+    const usersWithTokens = await dal.users.findWithFCMTokens();
     let totalSent = 0;
 
     for (const user of usersWithTokens) {
-        const { sent } = await sendPushToUser(db, user.id, notification);
+        const { sent } = await sendPushToUser(dal, user.id, notification);
         totalSent += sent;
     }
 
@@ -140,18 +137,12 @@ const broadcastToAll = async (db, notification) => {
 
 /**
  * Check and send daily study reminders
- * Runs every hour; sends to users whose preferred hour matches current hour
  */
-const sendDailyReminders = async (db) => {
+const sendDailyReminders = async (dal) => {
     if (!fcmEnabled) return;
     const currentHour = new Date().getHours();
 
-    await db.read();
-    const users = db.data.users.filter(u =>
-        u.fcmTokens?.length > 0 &&
-        (u.notificationPrefs?.dailyReminder !== false) &&
-        (u.notificationPrefs?.reminderHour ?? 9) === currentHour
-    );
+    const users = await dal.users.findDailyReminderEligible(currentHour);
 
     const motivation = [
         '🔥 Rise and grind, Hunter! Your daily quests await.',
@@ -163,7 +154,7 @@ const sendDailyReminders = async (db) => {
     ];
 
     for (const user of users) {
-        await sendPushToUser(db, user.id, {
+        await sendPushToUser(dal, user.id, {
             title: '📖 Daily Study Reminder',
             body: motivation[Math.floor(Math.random() * motivation.length)],
             tag: 'daily-reminder',
@@ -176,30 +167,15 @@ const sendDailyReminders = async (db) => {
 
 /**
  * Check for users at risk of losing their streak (no activity in 20+ hours)
- * Runs every 2 hours
  */
-const sendStreakAlerts = async (db) => {
+const sendStreakAlerts = async (dal) => {
     if (!fcmEnabled) return;
-    await db.read();
 
-    const now = Date.now();
-    const TWENTY_HOURS_MS = 20 * 60 * 60 * 1000;
-
-    const atRisk = db.data.users.filter(u => {
-        if (!u.fcmTokens?.length) return false;
-        if (u.notificationPrefs?.streakReminder === false) return false;
-        if (!u.lastActive) return false;
-
-        const lastActive = new Date(u.lastActive).getTime();
-        const timeSince = now - lastActive;
-
-        // Between 20-24 hours of inactivity (don't spam past 24h)
-        return timeSince >= TWENTY_HOURS_MS && timeSince < 24 * 60 * 60 * 1000;
-    });
+    const atRisk = await dal.users.findStreakAtRisk();
 
     for (const user of atRisk) {
         const streak = user.streak || 0;
-        await sendPushToUser(db, user.id, {
+        await sendPushToUser(dal, user.id, {
             title: '🔥 Streak at Risk!',
             body: streak > 0
                 ? `Your ${streak}-day streak is about to break! Quick, solve 1 question to save it!`
@@ -215,8 +191,8 @@ const sendStreakAlerts = async (db) => {
 /**
  * Send challenge notifications when someone joins/creates
  */
-export const sendChallengeNotification = async (db, targetUserId, challengerName, subject) => {
-    return sendPushToUser(db, targetUserId, {
+export const sendChallengeNotification = async (dal, targetUserId, challengerName, subject) => {
+    return sendPushToUser(dal, targetUserId, {
         title: '⚔️ Challenge Received!',
         body: `${challengerName} challenged you in ${subject}! Accept now?`,
         tag: 'challenge',
@@ -231,18 +207,19 @@ let streakInterval = null;
 
 /**
  * Start the notification scheduler
+ * @param {object} dal — Data Access Layer
  */
-export const startNotificationScheduler = (db) => {
+export const startNotificationScheduler = (dal) => {
     if (!fcmEnabled) {
         console.log('⏭️  Notification scheduler skipped (Firebase Admin not initialized)');
         return;
     }
 
     // Daily reminders — check every hour
-    reminderInterval = setInterval(() => sendDailyReminders(db), 60 * 60 * 1000);
+    reminderInterval = setInterval(() => sendDailyReminders(dal), 60 * 60 * 1000);
 
     // Streak alerts — check every 2 hours
-    streakInterval = setInterval(() => sendStreakAlerts(db), 2 * 60 * 60 * 1000);
+    streakInterval = setInterval(() => sendStreakAlerts(dal), 2 * 60 * 60 * 1000);
 
     console.log('⏰ Notification scheduler started (reminders: hourly, streaks: every 2h)');
 };

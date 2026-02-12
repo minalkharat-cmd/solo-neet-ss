@@ -1,10 +1,8 @@
 import { Router } from 'express';
-import crypto from 'crypto';
 import { createOrder, verifyPayment, calculateSubscriptionEnd, PLANS, isConfigured as isPaymentConfigured } from '../payment.js';
 
-export function createSubscriptionRoutes({ db, authMiddleware }) {
+export function createSubscriptionRoutes({ dal, authMiddleware }) {
     const router = Router();
-    const generateId = () => crypto.randomUUID();
 
     // Get subscription plans
     router.get('/plans', (req, res) => {
@@ -23,8 +21,7 @@ export function createSubscriptionRoutes({ db, authMiddleware }) {
     // Get user subscription status
     router.get('/status', authMiddleware, async (req, res) => {
         try {
-            await db.read();
-            const user = db.data.users.find(u => u.id === req.userId);
+            const user = await dal.users.findById(req.userId);
             if (!user) return res.status(404).json({ error: 'User not found' });
 
             const isPremium = user.subscriptionEnd && new Date(user.subscriptionEnd) > new Date();
@@ -64,27 +61,14 @@ export function createSubscriptionRoutes({ db, authMiddleware }) {
                 return res.status(400).json({ error: 'Payment verification failed' });
             }
 
-            await db.read();
-            const userIndex = db.data.users.findIndex(u => u.id === req.userId);
-            if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
-
             const subscriptionEnd = calculateSubscriptionEnd(planId);
-            db.data.users[userIndex].isPremium = true;
-            db.data.users[userIndex].subscriptionPlan = planId;
-            db.data.users[userIndex].subscriptionEnd = subscriptionEnd;
-            db.data.users[userIndex].subscriptionId = paymentId;
-
-            if (!db.data.payments) db.data.payments = [];
-            db.data.payments.push({
-                id: generateId(),
-                userId: req.userId,
-                orderId, paymentId, planId,
+            const user = await dal.activateSubscription(req.userId, {
+                planId, paymentId, orderId,
                 amount: PLANS[planId].amount,
-                status: 'completed',
-                createdAt: new Date().toISOString()
+                subscriptionEnd
             });
 
-            await db.write();
+            if (!user) return res.status(404).json({ error: 'User not found' });
             res.json({ success: true, message: 'Subscription activated', subscriptionEnd });
         } catch (error) {
             console.error('Payment verification failed:', error);
@@ -96,9 +80,8 @@ export function createSubscriptionRoutes({ db, authMiddleware }) {
 }
 
 // Premium middleware helper
-export const createPremiumMiddleware = (db) => async (req, res, next) => {
-    await db.read();
-    const user = db.data.users.find(u => u.id === req.userId);
+export const createPremiumMiddleware = (dal) => async (req, res, next) => {
+    const user = await dal.users.findById(req.userId);
     if (!user || !user.subscriptionEnd || new Date(user.subscriptionEnd) <= new Date()) {
         return res.status(403).json({ error: 'Premium subscription required', upgrade: true });
     }

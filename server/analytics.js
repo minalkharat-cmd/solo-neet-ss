@@ -3,11 +3,12 @@
 
 /**
  * Get personal analytics for a specific user
+ * @param {object} dal — Data Access Layer
  */
-export const getPersonalAnalytics = (db, userId) => {
-    const progress = db.data.progress.find(p => p.userId === userId);
-    const user = db.data.users.find(u => u.id === userId);
-    const srsRecords = (db.data.srsRecords || []).filter(r => r.userId === userId);
+export const getPersonalAnalytics = async (dal, userId) => {
+    const progress = await dal.progress.findByUserId(userId);
+    const user = await dal.users.findById(userId);
+    const srsRecords = await dal.srsRecords.findByUser(userId);
 
     if (!progress) return null;
 
@@ -45,7 +46,6 @@ export const getPersonalAnalytics = (db, userId) => {
     const weeksActive = Math.max(1, Math.ceil(daysActive / 7));
     const weeklyXP = [];
     for (let i = 0; i < Math.min(weeksActive, 8); i++) {
-        // Simulate slight variation
         const weekXP = Math.round(avgDailyXP * 7 * (0.7 + Math.random() * 0.6));
         weeklyXP.push({ week: i + 1, xp: Math.min(weekXP, totalXP) });
     }
@@ -74,10 +74,11 @@ export const getPersonalAnalytics = (db, userId) => {
 
 /**
  * Get platform-wide engagement metrics
+ * @param {object} dal — Data Access Layer
  */
-export const getEngagementMetrics = (db) => {
-    const users = db.data.users || [];
-    const progressData = db.data.progress || [];
+export const getEngagementMetrics = async (dal) => {
+    const users = await dal.users.getAll();
+    const progressData = await dal.progress.getAll();
 
     const totalUsers = users.length;
     const now = Date.now();
@@ -108,9 +109,7 @@ export const getEngagementMetrics = (db) => {
     }
 
     // Leaderboard snapshot
-    const topPlayers = [...(db.data.leaderboard || [])]
-        .sort((a, b) => b.totalXP - a.totalXP)
-        .slice(0, 5)
+    const topPlayers = (await dal.leaderboard.getTopPlayers(5))
         .map((entry, i) => ({
             rank: i + 1,
             hunterName: entry.hunterName,
@@ -119,13 +118,16 @@ export const getEngagementMetrics = (db) => {
             hunterRank: entry.rank
         }));
 
+    const generatedQuestions = await dal.generatedQuestions.count();
+    const totalPayments = await dal.payments.count();
+
     return {
         totalUsers,
         activeUsers,
         newUsersThisWeek,
         specialtyEngagement,
         topPlayers,
-        generatedQuestions: (db.data.generatedQuestions || []).length,
-        totalPayments: (db.data.payments || []).length
+        generatedQuestions,
+        totalPayments
     };
 };

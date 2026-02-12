@@ -5,21 +5,21 @@ import { sendChallengeNotification } from './pushSender.js';
 
 /**
  * Register social routes on the Express app
+ * @param {object} dal — Data Access Layer
  */
-export const registerSocialRoutes = (app, db, authMiddleware) => {
+export const registerSocialRoutes = (app, dal, authMiddleware) => {
 
     // ============ STUDY GROUPS ============
 
     // List all groups
     app.get('/api/groups', async (req, res) => {
-        await db.read();
-        const groups = db.data.groups || [];
-        const enriched = groups.map(g => ({
-            ...g,
-            members: g.memberIds.map(id => {
-                const u = db.data.users.find(u => u.id === id);
+        const groups = await dal.groups.getAll();
+        const enriched = await Promise.all(groups.map(async g => {
+            const members = await Promise.all(g.memberIds.map(async id => {
+                const u = await dal.users.findById(id);
                 return u ? { id: u.id, hunterName: u.hunterName, avatar: u.avatar } : { id, hunterName: 'Unknown' };
-            })
+            }));
+            return { ...g, members };
         }));
         res.json(enriched);
     });
@@ -29,10 +29,7 @@ export const registerSocialRoutes = (app, db, authMiddleware) => {
         const { name, description } = req.body;
         if (!name?.trim()) return res.status(400).json({ error: 'Group name required' });
 
-        await db.read();
-        if (!db.data.groups) db.data.groups = [];
-
-        const group = {
+        const group = await dal.groups.create({
             id: generateId(),
             name: name.trim(),
             description: description?.trim() || '',
@@ -40,35 +37,29 @@ export const registerSocialRoutes = (app, db, authMiddleware) => {
             memberIds: [req.userId],
             maxMembers: 20,
             createdAt: new Date().toISOString()
-        };
+        });
 
-        db.data.groups.push(group);
-        await db.write();
         res.json(group);
     });
 
     // Join group
     app.post('/api/groups/:id/join', authMiddleware, async (req, res) => {
-        await db.read();
-        const group = (db.data.groups || []).find(g => g.id === req.params.id);
+        const group = await dal.groups.findById(req.params.id);
         if (!group) return res.status(404).json({ error: 'Group not found' });
         if (group.memberIds.includes(req.userId)) return res.status(400).json({ error: 'Already a member' });
         if (group.memberIds.length >= group.maxMembers) return res.status(400).json({ error: 'Group is full' });
 
-        group.memberIds.push(req.userId);
-        await db.write();
+        await dal.groups.addMember(req.params.id, req.userId);
         res.json({ success: true });
     });
 
     // Leave group
     app.post('/api/groups/:id/leave', authMiddleware, async (req, res) => {
-        await db.read();
-        const group = (db.data.groups || []).find(g => g.id === req.params.id);
+        const group = await dal.groups.findById(req.params.id);
         if (!group) return res.status(404).json({ error: 'Group not found' });
         if (group.ownerId === req.userId) return res.status(400).json({ error: 'Owner cannot leave. Delete the group instead.' });
 
-        group.memberIds = group.memberIds.filter(id => id !== req.userId);
-        await db.write();
+        await dal.groups.removeMember(req.params.id, req.userId);
         res.json({ success: true });
     });
 
@@ -77,24 +68,19 @@ export const registerSocialRoutes = (app, db, authMiddleware) => {
     // Create challenge
     app.post('/api/challenge/create', authMiddleware, async (req, res) => {
         const { subject, questionCount = 10 } = req.body;
-        await db.read();
-        if (!db.data.challenges) db.data.challenges = [];
-
         const code = generateId().slice(0, 6).toUpperCase();
 
-        const challenge = {
+        const challenge = await dal.challenges.create({
             id: generateId(),
             code,
             creatorId: req.userId,
             opponentId: null,
             subject: subject || 'cardiology',
             questionCount,
-            status: 'waiting', // waiting | active | completed
+            status: 'waiting',
             createdAt: new Date().toISOString()
-        };
+        });
 
-        db.data.challenges.push(challenge);
-        await db.write();
         res.json({ code, challengeId: challenge.id });
     });
 
@@ -103,24 +89,21 @@ export const registerSocialRoutes = (app, db, authMiddleware) => {
         const { code } = req.body;
         if (!code) return res.status(400).json({ error: 'Challenge code required' });
 
-        await db.read();
-        const challenge = (db.data.challenges || []).find(c => c.code === code.toUpperCase() && c.status === 'waiting');
+        const challenge = await dal.challenges.findByCode(code);
         if (!challenge) return res.status(404).json({ error: 'Challenge not found or already started' });
         if (challenge.creatorId === req.userId) return res.status(400).json({ error: 'Cannot join your own challenge' });
 
-        challenge.opponentId = req.userId;
-        challenge.status = 'active';
-        await db.write();
+        const activated = await dal.challenges.activate(code, req.userId);
 
         // Push notify the challenge creator
-        const joiner = db.data.users.find(u => u.id === req.userId);
+        const joiner = await dal.users.findById(req.userId);
         const joinerName = joiner?.hunterName || 'A Hunter';
-        sendChallengeNotification(db, challenge.creatorId, joinerName, challenge.subject).catch(() => { });
+        sendChallengeNotification(dal, activated.creatorId, joinerName, activated.subject).catch(() => { });
 
         res.json({
-            challengeId: challenge.id,
-            subject: challenge.subject,
-            questionCount: challenge.questionCount,
+            challengeId: activated.id,
+            subject: activated.subject,
+            questionCount: activated.questionCount,
             status: 'active'
         });
     });
