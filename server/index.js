@@ -1,6 +1,10 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import passport from 'passport';
@@ -32,16 +36,23 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const PORT = process.env.PORT || 3002;
-const JWT_SECRET = process.env.JWT_SECRET || 'solo-neet-ss-secret-key-2026';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const isProduction = process.env.NODE_ENV === 'production';
+
+// JWT Secret — MUST be set via environment variable in production
+if (!process.env.JWT_SECRET) {
+    if (isProduction) {
+        console.error('FATAL: JWT_SECRET environment variable is required in production.');
+        process.exit(1);
+    }
+    console.warn('WARNING: JWT_SECRET not set. Using random secret — sessions will not survive restarts.');
+}
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 
 // Google OAuth Config — validated at startup
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || `http://localhost:${PORT}/api/auth/google/callback`;
-
-// Validate OAuth credentials in production
-const isProduction = process.env.NODE_ENV === 'production';
 if (isProduction && (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET)) {
     console.error('CRITICAL: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in production!');
     console.error('Google OAuth will be DISABLED until these environment variables are configured on Render.');
@@ -61,13 +72,18 @@ await db.read();
 db.data ||= defaultData;
 await db.write();
 
-// CORS: allow both localhost and production origins
+// CORS: strict origin allowlist
 const allowedOrigins = [FRONTEND_URL];
-if (isProduction && FRONTEND_URL !== 'http://localhost:5173') {
-    allowedOrigins.push('http://localhost:5173');
-} else if (!isProduction) {
+if (!isProduction) {
+    // Only allow additional origins in development
     allowedOrigins.push('https://solo-neet-ss.vercel.app');
+    allowedOrigins.push('http://localhost:5173');
 }
+
+// Security headers
+app.use(helmet({
+    contentSecurityPolicy: isProduction ? undefined : false, // Disable CSP in dev for hot reload
+}));
 
 app.use(cors({
     origin: (origin, callback) => {
@@ -75,17 +91,39 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            callback(null, false);
+            console.warn(`CORS blocked origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 app.use(passport.initialize());
 
-// Generate unique ID
-const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+// Rate limiters
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // 20 attempts per window
+    message: { error: 'Too many attempts. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 100, // 100 requests per minute
+    message: { error: 'Rate limit exceeded. Please slow down.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Apply general rate limit to all API routes
+app.use('/api/', apiLimiter);
+
+// Generate cryptographically secure unique ID
+const generateId = () => crypto.randomUUID();
 
 // Get rank from level (SS Edition uses same thresholds)
 const getRank = (level) => {
@@ -200,9 +238,9 @@ if (googleOAuthEnabled) {
     console.warn('⚠️  Google OAuth DISABLED — GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set.');
 }
 
-// Auth middleware
+// Auth middleware — accepts Bearer token or HTTP-only cookie
 const authMiddleware = (req, res, next) => {
-    const token = req.headers.authorization?.split(' ')[1];
+    const token = req.headers.authorization?.split(' ')[1] || req.cookies?.auth_token;
     if (!token) {
         return res.status(401).json({ error: 'No token provided' });
     }
@@ -213,6 +251,16 @@ const authMiddleware = (req, res, next) => {
     } catch (err) {
         return res.status(401).json({ error: 'Invalid token' });
     }
+};
+
+// Admin middleware — requires authMiddleware to run first
+const adminMiddleware = async (req, res, next) => {
+    await db.read();
+    const user = db.data.users.find(u => u.id === req.userId);
+    if (!user?.isAdmin) {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
 };
 
 // ============ AUTH ROUTES ============
@@ -232,24 +280,37 @@ if (googleOAuthEnabled) {
         }),
         (req, res) => {
             const token = jwt.sign({ userId: req.user.id }, JWT_SECRET, { expiresIn: '7d' });
-            const userParam = encodeURIComponent(JSON.stringify({
-                id: req.user.id,
-                username: req.user.username,
-                email: req.user.email,
-                hunterName: req.user.hunterName,
-                avatar: req.user.avatar
-            }));
 
             // Check if request is from mobile app (Android/iOS)
             const userAgent = req.headers['user-agent'] || '';
             const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
 
             if (isMobile) {
-                // Redirect to custom URL scheme for mobile app
+                // Mobile: must use URL scheme (no cookie support in deep links)
+                const userParam = encodeURIComponent(JSON.stringify({
+                    id: req.user.id,
+                    username: req.user.username,
+                    hunterName: req.user.hunterName,
+                    avatar: req.user.avatar
+                }));
                 res.redirect(`com.soloneet.ss://oauth?token=${token}&user=${userParam}`);
             } else {
-                // Normal web redirect
-                res.redirect(`${FRONTEND_URL}?token=${token}&user=${userParam}`);
+                // Web: set token in HTTP-only cookie, redirect clean URL
+                res.cookie('auth_token', token, {
+                    httpOnly: true,
+                    secure: isProduction,
+                    sameSite: 'lax',
+                    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+                    path: '/',
+                });
+                // Pass only non-sensitive user info as URL param for immediate display
+                const userParam = encodeURIComponent(JSON.stringify({
+                    id: req.user.id,
+                    username: req.user.username,
+                    hunterName: req.user.hunterName,
+                    avatar: req.user.avatar
+                }));
+                res.redirect(`${FRONTEND_URL}?auth=success&user=${userParam}`);
             }
         }
     );
@@ -260,12 +321,53 @@ if (googleOAuthEnabled) {
     });
 }
 
-app.post('/api/auth/register', async (req, res) => {
+// Input sanitization helper — strip HTML tags and trim
+const sanitizeInput = (str, maxLength = 100) => {
+    if (typeof str !== 'string') return '';
+    return str.replace(/<[^>]*>/g, '').trim().slice(0, maxLength);
+};
+
+// Password validation
+const validatePassword = (password) => {
+    if (!password || password.length < 8) return 'Password must be at least 8 characters';
+    if (password.length > 128) return 'Password must be less than 128 characters';
+    if (!/[A-Za-z]/.test(password)) return 'Password must contain at least one letter';
+    if (!/[0-9]/.test(password)) return 'Password must contain at least one number';
+    return null;
+};
+
+// Email validation
+const validateEmail = (email) => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+};
+
+app.post('/api/auth/register', authLimiter, async (req, res) => {
     try {
-        const { username, email, password, hunterName } = req.body;
+        const username = sanitizeInput(req.body.username, 30);
+        const email = sanitizeInput(req.body.email, 100);
+        const password = req.body.password; // Don't sanitize passwords (they get hashed)
+        const hunterName = sanitizeInput(req.body.hunterName, 50) || 'Hunter';
 
         if (!username || !email || !password) {
             return res.status(400).json({ error: 'All fields required' });
+        }
+
+        if (username.length < 3) {
+            return res.status(400).json({ error: 'Username must be at least 3 characters' });
+        }
+
+        if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+            return res.status(400).json({ error: 'Username may only contain letters, numbers, and underscores' });
+        }
+
+        if (!validateEmail(email)) {
+            return res.status(400).json({ error: 'Invalid email address' });
+        }
+
+        const passwordError = validatePassword(password);
+        if (passwordError) {
+            return res.status(400).json({ error: passwordError });
         }
 
         await db.read();
@@ -274,13 +376,13 @@ app.post('/api/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'Username or email already exists' });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 12);
 
         const user = await createUserWithProgress({
             username,
             email,
             password: hashedPassword,
-            hunterName: hunterName || 'Hunter'
+            hunterName
         });
 
         const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
@@ -291,7 +393,7 @@ app.post('/api/auth/register', async (req, res) => {
                 id: user.id,
                 username,
                 email,
-                hunterName: hunterName || 'Hunter'
+                hunterName
             }
         });
     } catch (err) {
@@ -300,7 +402,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
 
@@ -470,7 +572,7 @@ app.get('/api/leaderboard/me', authMiddleware, async (req, res) => {
 // ============ PUBMED QUESTION GENERATOR ROUTES ============
 
 // Search PubMed articles
-app.post('/api/pubmed/search', async (req, res) => {
+app.post('/api/pubmed/search', authMiddleware, async (req, res) => {
     try {
         const { query, limit = 5 } = req.body;
 
@@ -573,7 +675,7 @@ app.get('/api/llm/status', async (req, res) => {
 });
 
 // Switch LLM provider
-app.post('/api/llm/provider', authMiddleware, async (req, res) => {
+app.post('/api/llm/provider', authMiddleware, adminMiddleware, async (req, res) => {
     const { provider } = req.body;
 
     if (!['ollama', 'gemini'].includes(provider)) {
@@ -1425,7 +1527,7 @@ app.get('/api/analytics/personal', authMiddleware, async (req, res) => {
     }
 });
 
-app.get('/api/analytics/engagement', async (req, res) => {
+app.get('/api/analytics/engagement', authMiddleware, async (req, res) => {
     try {
         await db.read();
         const metrics = getEngagementMetrics(db);
@@ -1443,7 +1545,7 @@ registerSocialRoutes(app, db, authMiddleware);
 registerNotificationRoutes(app, db, authMiddleware);
 
 // Admin test push endpoint
-app.post('/api/notifications/test-push', authMiddleware, async (req, res) => {
+app.post('/api/notifications/test-push', authMiddleware, adminMiddleware, async (req, res) => {
     const { title, body } = req.body;
     const result = await sendPushToUser(db, req.userId, {
         title: title || '🧪 Test Notification',
@@ -1488,7 +1590,7 @@ app.get('/api/generator/status', (req, res) => {
 });
 
 // Force run generation (admin only)
-app.post('/api/generator/run', authMiddleware, (req, res) => {
+app.post('/api/generator/run', authMiddleware, adminMiddleware, (req, res) => {
     if (!backgroundGenerator) {
         return res.status(503).json({ error: 'Generator not enabled' });
     }

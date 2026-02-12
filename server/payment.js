@@ -2,11 +2,17 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 
-// Initialize Razorpay instance
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || 'placeholder_secret'
-});
+// Initialize Razorpay instance only if credentials are configured
+let razorpay = null;
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+    razorpay = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET
+    });
+    console.log('Payment gateway: Razorpay initialized');
+} else {
+    console.warn('Payment gateway: NOT configured (set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)');
+}
 
 // Subscription Plans
 export const PLANS = {
@@ -28,6 +34,10 @@ export const PLANS = {
 
 // Create Razorpay Order
 export async function createOrder(planId, userId) {
+    if (!razorpay) {
+        throw new Error('Payment gateway not configured');
+    }
+
     const plan = PLANS[planId];
     if (!plan) {
         throw new Error('Invalid plan');
@@ -60,13 +70,25 @@ export async function createOrder(planId, userId) {
 
 // Verify Payment Signature
 export function verifyPayment(orderId, paymentId, signature) {
+    if (!process.env.RAZORPAY_KEY_SECRET) {
+        throw new Error('Payment verification unavailable: credentials not configured');
+    }
+
     const body = orderId + '|' + paymentId;
     const expectedSignature = crypto
-        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'placeholder_secret')
+        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
         .update(body)
         .digest('hex');
 
-    return expectedSignature === signature;
+    // Use timing-safe comparison to prevent timing attacks
+    try {
+        return crypto.timingSafeEqual(
+            Buffer.from(expectedSignature, 'hex'),
+            Buffer.from(signature, 'hex')
+        );
+    } catch {
+        return false;
+    }
 }
 
 // Calculate subscription end date
@@ -79,6 +101,7 @@ export function calculateSubscriptionEnd(planId) {
 
 // Get payment details
 export async function getPaymentDetails(paymentId) {
+    if (!razorpay) return null;
     try {
         const payment = await razorpay.payments.fetch(paymentId);
         return payment;
@@ -90,10 +113,7 @@ export async function getPaymentDetails(paymentId) {
 
 // Check if Razorpay is configured
 export function isConfigured() {
-    return process.env.RAZORPAY_KEY_ID &&
-        process.env.RAZORPAY_KEY_ID !== 'rzp_test_placeholder' &&
-        process.env.RAZORPAY_KEY_SECRET &&
-        process.env.RAZORPAY_KEY_SECRET !== 'placeholder_secret';
+    return razorpay !== null;
 }
 
 export default {

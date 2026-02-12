@@ -27,7 +27,7 @@ export function LoginGate({ onLoginSuccess }) {
             try {
               setToken(token);
               const userData = JSON.parse(decodeURIComponent(userParam));
-              localStorage.setItem('user', JSON.stringify(userData));
+              localStorage.setItem('soloNeetSS_user', JSON.stringify(userData));
               await Browser.close();
               onLoginSuccess(userData);
             } catch (e) {
@@ -72,7 +72,7 @@ export function LoginGate({ onLoginSuccess }) {
       } else {
         result = await login(email, password);
       }
-      localStorage.setItem('user', JSON.stringify(result.user));
+      localStorage.setItem('soloNeetSS_user', JSON.stringify(result.user));
       onLoginSuccess(result.user);
     } catch (err) {
       setError(err.message);

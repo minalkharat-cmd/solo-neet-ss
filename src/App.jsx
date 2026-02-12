@@ -452,10 +452,12 @@ function App() {
     dismissAchievement,
   } = useGameState();
 
-  // Auth state
+  // Auth state — unified key: 'soloNeetSS_user' (matches api.js)
   const [user, setUser] = useState(() => {
-    const stored = localStorage.getItem('user');
-    return stored ? JSON.parse(stored) : null;
+    try {
+      const stored = localStorage.getItem('soloNeetSS_user') || localStorage.getItem('user');
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
   });
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return !!getToken() || localStorage.getItem('offlineMode') === 'true';
@@ -465,24 +467,38 @@ function App() {
   // Check for OAuth callback on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
+    const authStatus = params.get('auth');
     const userParam = params.get('user');
-    const authFailed = params.get('auth');
+    const legacyToken = params.get('token'); // Support legacy mobile flow
 
-    if (token && userParam) {
-      // OAuth success
-      setToken(token);
-      const userData = JSON.parse(userParam);
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
-      setIsAuthenticated(true);
-      // Clear URL params
+    if (authStatus === 'success' && userParam) {
+      // Cookie-based OAuth success — token is in HTTP-only cookie, user info in URL
+      try {
+        const userData = JSON.parse(decodeURIComponent(userParam));
+        localStorage.setItem('soloNeetSS_user', JSON.stringify(userData));
+        setUser(userData);
+        setIsAuthenticated(true);
+      } catch (e) {
+        console.error('Failed to parse OAuth user data:', e);
+      }
       window.history.replaceState({}, '', window.location.pathname);
-    } else if (authFailed === 'failed') {
+    } else if (legacyToken && userParam) {
+      // Legacy/mobile flow — token passed directly (mobile deep links)
+      try {
+        setToken(legacyToken);
+        const userData = JSON.parse(decodeURIComponent(userParam));
+        localStorage.setItem('soloNeetSS_user', JSON.stringify(userData));
+        setUser(userData);
+        setIsAuthenticated(true);
+      } catch (e) {
+        console.error('Failed to parse OAuth callback:', e);
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (authStatus === 'failed') {
       console.error('OAuth authentication failed');
       window.history.replaceState({}, '', window.location.pathname);
     } else if (getToken()) {
-      // Validate existing token
+      // Validate existing token (Bearer or cookie)
       getMe().then(data => {
         setUser(data.user);
         setIsAuthenticated(true);
@@ -537,7 +553,8 @@ function App() {
 
   const handleLogout = () => {
     logout();
-    localStorage.removeItem('user');
+    localStorage.removeItem('soloNeetSS_user');
+    localStorage.removeItem('user'); // Clean up legacy key
     localStorage.removeItem('offlineMode');
     setUser(null);
     setIsAuthenticated(false);
@@ -794,6 +811,8 @@ function App() {
           soundEnabled={soundEnabled}
           onToggleSound={() => setSoundEnabled(!soundEnabled)}
           onClose={() => setShowSettings(false)}
+          user={user}
+          onLogout={handleLogout}
         />
       )}
 

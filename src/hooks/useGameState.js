@@ -137,21 +137,13 @@ export const useGameState = () => {
                 });
             }
 
-            // Update subject progress
-            const subjectProgress = { ...prev.subjectProgress };
-            if (subjectId) {
-                if (!subjectProgress[subjectId]) {
-                    subjectProgress[subjectId] = { answered: 0, correct: 0 };
-                }
-                subjectProgress[subjectId].answered++;
-            }
-
+            // Note: subject progress tracking is handled by recordAnswer() only
+            // to avoid double-counting (addXP is for XP/leveling, recordAnswer is for stats)
             const newState = {
                 ...prev,
                 xp: newXP,
                 level: newLevel,
                 totalXP: newTotalXP,
-                subjectProgress,
             };
 
             // Check for new achievements
