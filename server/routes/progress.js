@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import logger from '../lib/logger.js';
 
 export function createProgressRoutes({ dal, authMiddleware }) {
     const router = Router();
@@ -10,7 +11,7 @@ export function createProgressRoutes({ dal, authMiddleware }) {
             if (!progress) return res.status(404).json({ error: 'No progress found' });
             res.json(progress);
         } catch (err) {
-            console.error('Get progress error:', err);
+            logger.error('Failed to fetch progress', { error: err.message });
             res.status(500).json({ error: 'Failed to fetch progress' });
         }
     });
@@ -36,7 +37,7 @@ export function createProgressRoutes({ dal, authMiddleware }) {
             if (!result) return res.status(404).json({ error: 'User progress not found' });
             res.json({ success: true });
         } catch (err) {
-            console.error('Save progress error:', err);
+            logger.error('Failed to save progress', { error: err.message });
             res.status(500).json({ error: 'Failed to save progress' });
         }
     });

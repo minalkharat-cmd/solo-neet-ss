@@ -1,6 +1,8 @@
 // Ollama LLM Client for Solo NEET SS
 // Connects to local Ollama server for MCQ generation using Llama 3
 
+import logger from './lib/logger.js';
+
 const OLLAMA_API_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'llama3:70b';
 
@@ -141,7 +143,7 @@ function parseGeneratedQuestions(text, article) {
     const jsonMatch = text.match(/\[[\s\S]*\]/);
 
     if (!jsonMatch) {
-        console.error('Could not find JSON in response:', text);
+        logger.error('Could not find JSON in Ollama response', { responsePreview: text.substring(0, 200) });
         throw new Error('Failed to parse AI response - no valid JSON found');
     }
 
@@ -193,7 +195,7 @@ function parseGeneratedQuestions(text, article) {
             return q;
         });
     } catch (error) {
-        console.error('JSON parse error:', error, 'Text:', jsonMatch[0]);
+        logger.error('JSON parse error in Ollama response', { error: error.message, textPreview: jsonMatch[0].substring(0, 200) });
         throw new Error(`Failed to parse AI response: ${error.message}`);
     }
 }

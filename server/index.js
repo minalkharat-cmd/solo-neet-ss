@@ -12,9 +12,18 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 
-// Internal modules
+// Lib
+import logger from './lib/logger.js';
+import { validateEnvironment } from './lib/env.js';
+import { installShutdownHandlers, onShutdown } from './lib/shutdown.js';
+
+// Middleware
 import { createDAL } from './dal.js';
 import { createAuthMiddleware, createAdminMiddleware } from './middleware/auth.js';
+import { requestIdMiddleware } from './middleware/requestId.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+
+// Routes
 import { createAuthRoutes } from './routes/auth.js';
 import { createProgressRoutes } from './routes/progress.js';
 import { createLeaderboardRoutes } from './routes/leaderboard.js';
@@ -28,7 +37,10 @@ import { registerNotificationRoutes } from './notifications.js';
 import { initFirebaseAdmin, startNotificationScheduler, sendPushToUser } from './pushSender.js';
 import { initBackgroundGenerator } from './backgroundGenerator.js';
 
-// ============ CONFIG ============
+// ============ BOOTSTRAP ============
+
+installShutdownHandlers();
+const features = validateEnvironment();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -36,13 +48,13 @@ const PORT = process.env.PORT || 3002;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const isProduction = process.env.NODE_ENV === 'production';
 
-// JWT Secret — MUST be set via environment variable in production
+// JWT Secret
 if (!process.env.JWT_SECRET) {
     if (isProduction) {
-        console.error('FATAL: JWT_SECRET environment variable is required in production.');
+        logger.error('FATAL: JWT_SECRET environment variable is required in production.');
         process.exit(1);
     }
-    console.warn('WARNING: JWT_SECRET not set. Using random secret — sessions will not survive restarts.');
+    logger.warn('JWT_SECRET not set — using random secret. Sessions will not survive restarts.');
 }
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 
@@ -56,17 +68,19 @@ await db.read();
 db.data ||= defaultData;
 await db.write();
 
-// Create Data Access Layer
 const dal = createDAL(db);
+logger.info('Database initialized', { path: 'db.json' });
 
 // ============ MIDDLEWARE ============
 
-// CORS: strict origin allowlist
 const allowedOrigins = [FRONTEND_URL];
 if (!isProduction) {
     allowedOrigins.push('https://solo-neet-ss.vercel.app');
     allowedOrigins.push('http://localhost:5173');
 }
+
+// Request ID — first middleware, before anything else
+app.use(requestIdMiddleware);
 
 app.use(helmet({
     contentSecurityPolicy: isProduction ? undefined : false,
@@ -77,7 +91,7 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            console.warn(`CORS blocked origin: ${origin}`);
+            logger.warn('CORS blocked origin', { origin });
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -107,7 +121,6 @@ const apiLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 
-// Create auth middleware instances
 const authMiddleware = createAuthMiddleware(JWT_SECRET);
 const adminMiddleware = createAdminMiddleware(dal);
 
@@ -115,7 +128,33 @@ const adminMiddleware = createAdminMiddleware(dal);
 
 let llmProvider = process.env.LLM_PROVIDER || 'ollama';
 const getLlmProvider = () => llmProvider;
-const setLlmProvider = (p) => { llmProvider = p; console.log(`LLM provider switched to: ${p}`); };
+const setLlmProvider = (p) => { llmProvider = p; logger.info('LLM provider switched', { provider: p }); };
+
+// ============ HEALTH CHECK ============
+
+const startTime = Date.now();
+
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+        timestamp: new Date().toISOString(),
+    });
+});
+
+app.get('/api/health/ready', async (req, res) => {
+    try {
+        // Verify DB is readable
+        await db.read();
+        res.json({
+            status: 'ready',
+            database: 'ok',
+            uptime: Math.floor((Date.now() - startTime) / 1000),
+        });
+    } catch (err) {
+        res.status(503).json({ status: 'not ready', database: 'error', error: err.message });
+    }
+});
 
 // ============ MOUNT ROUTES ============
 
@@ -130,24 +169,22 @@ app.use('/api/payment', createSubscriptionRoutes(deps));
 
 // ============ ANALYTICS ROUTES ============
 
-app.get('/api/analytics/personal', authMiddleware, async (req, res) => {
+app.get('/api/analytics/personal', authMiddleware, async (req, res, next) => {
     try {
         const analytics = await getPersonalAnalytics(dal, req.userId);
         if (!analytics) return res.status(404).json({ error: 'No analytics data found' });
         res.json(analytics);
     } catch (error) {
-        console.error('Analytics error:', error);
-        res.status(500).json({ error: 'Failed to fetch analytics' });
+        next(error);
     }
 });
 
-app.get('/api/analytics/engagement', authMiddleware, async (req, res) => {
+app.get('/api/analytics/engagement', authMiddleware, async (req, res, next) => {
     try {
         const metrics = await getEngagementMetrics(dal);
         res.json(metrics);
     } catch (error) {
-        console.error('Engagement metrics error:', error);
-        res.status(500).json({ error: 'Failed to fetch engagement metrics' });
+        next(error);
     }
 });
 
@@ -171,7 +208,7 @@ app.post('/api/notifications/test-push', authMiddleware, adminMiddleware, async 
 const httpServer = createServer(app);
 const { matchmakingQueue, battleRooms } = initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins });
 
-app.get('/api/pvp/status', async (req, res) => {
+app.get('/api/pvp/status', (req, res) => {
     res.json({
         playersInQueue: matchmakingQueue.length,
         activeBattles: Object.keys(battleRooms).length
@@ -198,20 +235,32 @@ app.post('/api/generator/run', authMiddleware, adminMiddleware, (req, res) => {
     res.json({ message: 'Generation cycle started' });
 });
 
+// ============ ERROR HANDLING (must be last) ============
+
+app.use(notFoundHandler);
+app.use(errorHandler);
+
 // ============ START SERVER ============
 
 initFirebaseAdmin();
 startNotificationScheduler(dal);
 
+// Register graceful shutdown callbacks
+onShutdown('HTTP server', () => new Promise((resolve) => httpServer.close(resolve)));
+onShutdown('Database flush', () => db.write());
+
 httpServer.listen(PORT, () => {
-    console.log(`Solo NEET SS Server running on http://localhost:${PORT}`);
-    console.log(`Database: db.json`);
-    console.log(`PvP Battles: Enabled`);
+    logger.info('Server started', {
+        port: PORT,
+        database: 'db.json',
+        pvp: true,
+        features,
+    });
 
     if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY') {
         backgroundGenerator = initBackgroundGenerator(dal, 30);
-        console.log('Background Question Generator: ACTIVE');
+        logger.info('Background Question Generator: ACTIVE');
     } else {
-        console.log('Background Question Generator: DISABLED (set GEMINI_API_KEY)');
+        logger.info('Background Question Generator: DISABLED (set GEMINI_API_KEY)');
     }
 });

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import logger from '../lib/logger.js';
 
 export function createLeaderboardRoutes({ dal, authMiddleware }) {
     const router = Router();
@@ -10,7 +11,7 @@ export function createLeaderboardRoutes({ dal, authMiddleware }) {
             const sorted = await dal.leaderboard.getTopPlayers(limit);
             res.json(sorted);
         } catch (err) {
-            console.error('Leaderboard error:', err);
+            logger.error('Failed to fetch leaderboard', { error: err.message });
             res.status(500).json({ error: 'Failed to fetch leaderboard' });
         }
     });
@@ -21,7 +22,7 @@ export function createLeaderboardRoutes({ dal, authMiddleware }) {
             const { rank, entry, totalPlayers } = await dal.leaderboard.getRank(req.userId);
             res.json({ rank, entry, totalPlayers });
         } catch (err) {
-            console.error('Leaderboard me error:', err);
+            logger.error('Failed to fetch user rank', { error: err.message });
             res.status(500).json({ error: 'Failed to fetch rank' });
         }
     });

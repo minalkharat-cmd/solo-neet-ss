@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { searchAndFetchAbstracts } from '../pubmed.js';
 import { generateQuestionsFromArticles } from '../questionGenerator.js';
 import { generateQuestionsFromArticles as generateWithOllama, checkOllamaStatus } from '../ollamaClient.js';
+import logger from '../lib/logger.js';
 
 export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, getLlmProvider, setLlmProvider }) {
     const router = Router();
@@ -28,7 +29,7 @@ export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, get
                 }))
             });
         } catch (error) {
-            console.error('PubMed search error:', error);
+            logger.error('PubMed search failed', { error: error.message });
             res.status(500).json({ error: 'Failed to search PubMed' });
         }
     });
@@ -71,7 +72,7 @@ export function createQuestionRoutes({ dal, authMiddleware, adminMiddleware, get
                 errorDetails: result.errors
             });
         } catch (error) {
-            console.error('Question generation error:', error);
+            logger.error('Question generation failed', { error: error.message });
             res.status(500).json({ error: 'Failed to generate questions' });
         }
     });

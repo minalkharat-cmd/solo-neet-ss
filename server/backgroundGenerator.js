@@ -3,6 +3,7 @@
 
 import { searchAndFetchAbstracts } from './pubmed.js';
 import { generateQuestionsFromArticles } from './questionGenerator.js';
+import logger from './lib/logger.js';
 
 // Topics to monitor for each specialty - high-yield NEET SS topics
 const SPECIALTY_TOPICS = {
@@ -166,7 +167,7 @@ let stats = {
  * @param {object} dal — Data Access Layer
  */
 export function initBackgroundGenerator(dal, intervalMinutes = 30) {
-    console.log(`🧬 Background PubMed Generator initialized (interval: ${intervalMinutes}min)`);
+    logger.info('Background PubMed generator initialized', { intervalMinutes });
 
     loadProcessedPmids(dal);
     runGenerationCycle(dal);
@@ -187,7 +188,7 @@ export function initBackgroundGenerator(dal, intervalMinutes = 30) {
  */
 async function loadProcessedPmids(dal) {
     processedPmids = await dal.generatedQuestions.getProcessedPmids();
-    console.log(`📚 Loaded ${processedPmids.size} previously processed PMIDs`);
+    logger.info('Loaded previously processed PMIDs', { count: processedPmids.size });
 }
 
 /**
@@ -195,18 +196,18 @@ async function loadProcessedPmids(dal) {
  */
 async function runGenerationCycle(dal) {
     if (isRunning) {
-        console.log('⏳ Generation cycle already in progress, skipping...');
+        logger.info('Generation cycle already in progress, skipping');
         return;
     }
 
     if (!process.env.GEMINI_API_KEY) {
-        console.log('⚠️ GEMINI_API_KEY not set - background generation disabled');
+        logger.info('Background generation disabled', { reason: 'GEMINI_API_KEY not set' });
         return;
     }
 
     isRunning = true;
     lastRunTime = new Date().toISOString();
-    console.log(`\n🔄 Starting PubMed generation cycle at ${lastRunTime}`);
+    logger.info('Starting PubMed generation cycle', { startTime: lastRunTime });
 
     const specialties = Object.keys(SPECIALTY_TOPICS);
     let cycleGenerated = 0;
@@ -221,7 +222,7 @@ async function runGenerationCycle(dal) {
 
             await sleep(5000);
         } catch (error) {
-            console.error(`❌ Error generating for ${specialty}:`, error.message);
+            logger.error('Error generating for specialty', { specialty, error: error.message });
             cycleErrors++;
         }
     }
@@ -230,7 +231,7 @@ async function runGenerationCycle(dal) {
     stats.totalErrors += cycleErrors;
     stats.questionsToday += cycleGenerated;
 
-    console.log(`✅ Generation cycle complete: ${cycleGenerated} questions, ${cycleErrors} errors\n`);
+    logger.info('Generation cycle complete', { questionsGenerated: cycleGenerated, errors: cycleErrors });
     isRunning = false;
 }
 
@@ -242,18 +243,18 @@ async function generateForSpecialty(dal, specialty) {
     if (!topics || topics.length === 0) return { generated: 0, errors: 0 };
 
     const topic = topics[Math.floor(Math.random() * topics.length)];
-    console.log(`📖 Searching: "${topic}" for ${specialty}`);
+    logger.info('Searching PubMed topic', { topic, specialty });
 
     try {
         const { articles } = await searchAndFetchAbstracts(topic, 3);
         const newArticles = articles.filter(a => !processedPmids.has(a.pmid));
 
         if (newArticles.length === 0) {
-            console.log(`   No new articles found for ${specialty}`);
+            logger.info('No new articles found', { specialty });
             return { generated: 0, errors: 0 };
         }
 
-        console.log(`   Found ${newArticles.length} new article(s)`);
+        logger.info('Found new articles', { count: newArticles.length });
         await sleep(2000);
 
         const result = await generateQuestionsFromArticles(newArticles, specialty);
@@ -271,14 +272,14 @@ async function generateForSpecialty(dal, specialty) {
             }
         }
 
-        console.log(`   ✨ Generated ${result.questions.length} question(s) for ${specialty}`);
+        logger.info('Generated questions for specialty', { count: result.questions.length, specialty });
 
         return {
             generated: result.questions.length,
             errors: result.errors?.length || 0
         };
     } catch (error) {
-        console.error(`   ❌ Error: ${error.message}`);
+        logger.error('Error generating questions', { error: error.message });
         return { generated: 0, errors: 1 };
     }
 }
@@ -294,7 +295,7 @@ setInterval(() => {
     if (today !== lastResetDate) {
         lastResetDate = today;
         stats.questionsToday = 0;
-        console.log('🌅 Daily question stats reset');
+        logger.info('Daily question stats reset');
     }
 }, 60000);
 

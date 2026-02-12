@@ -1,6 +1,7 @@
 // Solo NEET SS - Razorpay Payment Module
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import logger from './lib/logger.js';
 
 // Initialize Razorpay instance only if credentials are configured
 let razorpay = null;
@@ -9,9 +10,9 @@ if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
         key_id: process.env.RAZORPAY_KEY_ID,
         key_secret: process.env.RAZORPAY_KEY_SECRET
     });
-    console.log('Payment gateway: Razorpay initialized');
+    logger.info('Payment gateway initialized', { provider: 'Razorpay' });
 } else {
-    console.warn('Payment gateway: NOT configured (set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)');
+    logger.warn('Payment gateway not configured', { hint: 'Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET' });
 }
 
 // Subscription Plans
@@ -63,7 +64,7 @@ export async function createOrder(planId, userId) {
             keyId: process.env.RAZORPAY_KEY_ID
         };
     } catch (error) {
-        console.error('Razorpay order creation failed:', error);
+        logger.error('Razorpay order creation failed', { error: error.message });
         throw new Error('Failed to create payment order');
     }
 }
@@ -106,7 +107,7 @@ export async function getPaymentDetails(paymentId) {
         const payment = await razorpay.payments.fetch(paymentId);
         return payment;
     } catch (error) {
-        console.error('Failed to fetch payment:', error);
+        logger.error('Failed to fetch payment details', { error: error.message });
         return null;
     }
 }

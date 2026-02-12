@@ -8,6 +8,7 @@ import admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import logger from './lib/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,7 +28,7 @@ export const initFirebaseAdmin = () => {
         // 1. Try env var first (production)
         const envJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
         if (envJson) {
-            console.log(`🔑 Env var FIREBASE_SERVICE_ACCOUNT_JSON found (${envJson.length} chars)`);
+            logger.info('Firebase service account env var found', { length: envJson.length });
             try {
                 let cleaned = envJson.trim();
                 if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
@@ -37,10 +38,9 @@ export const initFirebaseAdmin = () => {
                 if (serviceAccount.private_key) {
                     serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
                 }
-                console.log(`🔑 Firebase key parsed — project: ${serviceAccount.project_id}`);
+                logger.info('Firebase key parsed', { projectId: serviceAccount.project_id });
             } catch (parseErr) {
-                console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', parseErr.message);
-                console.error('   First 100 chars:', envJson.substring(0, 100));
+                logger.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON', { error: parseErr.message, preview: envJson.substring(0, 100) });
                 return;
             }
         } else {
@@ -49,10 +49,9 @@ export const initFirebaseAdmin = () => {
                 const keyPath = join(__dirname, 'firebase-service-account.json');
                 const raw = readFileSync(keyPath, 'utf-8');
                 serviceAccount = JSON.parse(raw);
-                console.log('🔑 Firebase key loaded from local file');
+                logger.info('Firebase key loaded from local file');
             } catch {
-                console.log('⚠️  No Firebase service account key found — push notifications disabled');
-                console.log('   Set FIREBASE_SERVICE_ACCOUNT_JSON env var or create server/firebase-service-account.json');
+                logger.warn('No Firebase service account key found, push notifications disabled', { hint: 'Set FIREBASE_SERVICE_ACCOUNT_JSON env var or create server/firebase-service-account.json' });
                 return;
             }
         }
@@ -61,9 +60,9 @@ export const initFirebaseAdmin = () => {
             credential: admin.credential.cert(serviceAccount)
         });
         fcmEnabled = true;
-        console.log('🔔 Firebase Admin initialized — push notifications enabled');
+        logger.info('Firebase Admin initialized, push notifications enabled');
     } catch (err) {
-        console.error('❌ Firebase Admin init failed:', err.message);
+        logger.error('Firebase Admin init failed', { error: err.message });
     }
 };
 
@@ -104,7 +103,7 @@ export const sendPushToUser = async (dal, userId, notification) => {
                 err.code === 'messaging/invalid-registration-token') {
                 invalidTokens.push(token);
             }
-            console.error(`Push error for ${userId}:`, err.code || err.message);
+            logger.error('Push notification send failed', { userId, error: err.code || err.message });
         }
     }
 
@@ -130,7 +129,7 @@ const broadcastToAll = async (dal, notification) => {
         totalSent += sent;
     }
 
-    console.log(`📤 Broadcast sent to ${totalSent} device(s) across ${usersWithTokens.length} user(s)`);
+    logger.info('Broadcast sent', { devicesSent: totalSent, totalUsers: usersWithTokens.length });
 };
 
 // ============ SCHEDULED NOTIFICATIONS ============
@@ -162,7 +161,7 @@ const sendDailyReminders = async (dal) => {
         });
     }
 
-    if (users.length) console.log(`📖 Sent daily reminders to ${users.length} user(s) at hour ${currentHour}`);
+    if (users.length) logger.info('Sent daily reminders', { userCount: users.length, hour: currentHour });
 };
 
 /**
@@ -185,7 +184,7 @@ const sendStreakAlerts = async (dal) => {
         });
     }
 
-    if (atRisk.length) console.log(`🔥 Sent streak alerts to ${atRisk.length} user(s)`);
+    if (atRisk.length) logger.info('Sent streak alerts', { userCount: atRisk.length });
 };
 
 /**
@@ -211,7 +210,7 @@ let streakInterval = null;
  */
 export const startNotificationScheduler = (dal) => {
     if (!fcmEnabled) {
-        console.log('⏭️  Notification scheduler skipped (Firebase Admin not initialized)');
+        logger.info('Notification scheduler skipped', { reason: 'Firebase Admin not initialized' });
         return;
     }
 
@@ -221,7 +220,7 @@ export const startNotificationScheduler = (dal) => {
     // Streak alerts — check every 2 hours
     streakInterval = setInterval(() => sendStreakAlerts(dal), 2 * 60 * 60 * 1000);
 
-    console.log('⏰ Notification scheduler started (reminders: hourly, streaks: every 2h)');
+    logger.info('Notification scheduler started', { reminders: 'hourly', streaks: 'every 2h' });
 };
 
 /**

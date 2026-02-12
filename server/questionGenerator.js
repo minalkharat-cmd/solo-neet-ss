@@ -1,6 +1,8 @@
 // AI-Powered Question Generator
 // Converts PubMed abstracts into high-yield MCQs using Gemini API
 
+import logger from './lib/logger.js';
+
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 /**
@@ -103,7 +105,7 @@ function parseGeneratedQuestions(text, article) {
     const jsonMatch = text.match(/\[[\s\S]*\]/);
 
     if (!jsonMatch) {
-        console.error('Could not find JSON in response:', text);
+        logger.error('Could not find JSON in Gemini response', { responsePreview: text.substring(0, 200) });
         throw new Error('Failed to parse AI response - no valid JSON found');
     }
 
@@ -153,7 +155,7 @@ function parseGeneratedQuestions(text, article) {
             return q;
         });
     } catch (error) {
-        console.error('JSON parse error:', error, 'Text:', jsonMatch[0]);
+        logger.error('JSON parse error in Gemini response', { error: error.message, textPreview: jsonMatch[0].substring(0, 200) });
         throw new Error(`Failed to parse AI response: ${error.message}`);
     }
 }

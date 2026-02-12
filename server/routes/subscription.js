@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createOrder, verifyPayment, calculateSubscriptionEnd, PLANS, isConfigured as isPaymentConfigured } from '../payment.js';
+import logger from '../lib/logger.js';
 
 export function createSubscriptionRoutes({ dal, authMiddleware }) {
     const router = Router();
@@ -48,7 +49,7 @@ export function createSubscriptionRoutes({ dal, authMiddleware }) {
             const order = await createOrder(planId, req.userId);
             res.json({ success: true, order });
         } catch (error) {
-            console.error('Order creation failed:', error);
+            logger.error('Order creation failed', { error: error.message });
             res.status(500).json({ error: 'Failed to create order' });
         }
     });
@@ -71,7 +72,7 @@ export function createSubscriptionRoutes({ dal, authMiddleware }) {
             if (!user) return res.status(404).json({ error: 'User not found' });
             res.json({ success: true, message: 'Subscription activated', subscriptionEnd });
         } catch (error) {
-            console.error('Payment verification failed:', error);
+            logger.error('Payment verification failed', { error: error.message });
             res.status(500).json({ error: 'Failed to verify payment' });
         }
     });

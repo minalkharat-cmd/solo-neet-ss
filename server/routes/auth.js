@@ -5,6 +5,7 @@ import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import crypto from 'crypto';
 import { sanitizeInput, validatePassword, validateEmail } from '../middleware/validation.js';
+import logger from '../lib/logger.js';
 
 export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter, isProduction, FRONTEND_URL }) {
     const router = Router();
@@ -127,7 +128,7 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
             }
         );
     } else {
-        console.warn('Google OAuth DISABLED — GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set.');
+        logger.warn('Google OAuth disabled', { reason: 'GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set' });
         router.get('/google', (req, res) => {
             res.status(503).json({ error: 'Google OAuth is not configured.' });
         });
@@ -171,7 +172,7 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
             const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
             res.json({ token, user: { id: user.id, username, email, hunterName } });
         } catch (err) {
-            console.error('Register error:', err);
+            logger.error('Registration failed', { error: err.message });
             res.status(500).json({ error: 'Registration failed' });
         }
     });
@@ -200,7 +201,7 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
                 }
             });
         } catch (err) {
-            console.error('Login error:', err);
+            logger.error('Login failed', { error: err.message });
             res.status(500).json({ error: 'Login failed' });
         }
     });
@@ -218,7 +219,7 @@ export function createAuthRoutes({ dal, JWT_SECRET, authMiddleware, authLimiter,
                 }
             });
         } catch (err) {
-            console.error('Auth me error:', err);
+            logger.error('Failed to fetch current user', { error: err.message });
             res.status(500).json({ error: 'Failed to fetch user' });
         }
     });

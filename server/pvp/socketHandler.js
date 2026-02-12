@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { Server } from 'socket.io';
 import { battleQuestions } from './battleQuestions.js';
 import { sanitizeInput } from '../middleware/validation.js';
+import logger from '../lib/logger.js';
 
 // Fisher-Yates shuffle — unbiased
 const fisherYatesShuffle = (arr) => {
@@ -116,7 +117,7 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
             xpReward: winner ? 100 : 50
         });
 
-        console.log(`Battle end: ${player1.username}(${player1.score}) vs ${player2.username}(${player2.score})`);
+        logger.info('Battle ended', { player1: player1.username, score1: player1.score, player2: player2.username, score2: player2.score });
 
         setTimeout(() => {
             delete battleRooms[roomId];
@@ -124,7 +125,7 @@ export function initPvPSocket(httpServer, { dal, JWT_SECRET, allowedOrigins }) {
     };
 
     io.on('connection', async (socket) => {
-        console.log(`PvP connected: ${socket.id} (user: ${socket.userId})`);
+        logger.info('PvP client connected', { socketId: socket.id, userId: socket.userId });
 
         socket.on('register', async (userData) => {
             const dbUser = await dal.users.findById(socket.userId);
