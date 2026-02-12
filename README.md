@@ -130,7 +130,7 @@ The frontend dev server proxies API requests to the backend automatically.
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | Backend API URL (e.g., `https://solo-neet-ss-api.onrender.com`) |
+| `VITE_API_URL` | Backend API URL (leave empty for unified deployment — uses same-origin) |
 
 Features gracefully degrade when optional variables are missing. The server logs which features are enabled at startup.
 
@@ -191,19 +191,33 @@ GitHub Actions runs **4 parallel jobs** on push/PR to `main` or `develop`:
 
 ## Deployment
 
-### Render (Backend)
+### One-Click Deploy to Render
 
-Configured via `render.yaml`:
-- **Runtime**: Node.js
-- **Build**: `cd server && npm install`
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/minalkharat-cmd/solo-neet-ss)
+
+Click the button above. Render will:
+1. Create a free web service
+2. Build frontend + backend automatically
+3. Generate a JWT secret
+4. Give you a live URL like `https://solo-neet-ss.onrender.com`
+
+After deploy, optionally add these env vars in the Render dashboard:
+
+| Variable | Purpose |
+|----------|---------|
+| `GEMINI_API_KEY` | AI question generation (Google Gemini) |
+| `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | Google OAuth login |
+| `RAZORPAY_KEY_ID` + `RAZORPAY_KEY_SECRET` | Premium payments (INR) |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Push notifications |
+| `NCBI_API_KEY` | PubMed higher rate limits |
+
+### Manual Deploy (Render)
+
+Configured via `render.yaml` — single unified service (frontend + backend):
+- **Build**: `npm install && npm run build && cd server && npm install && npm run build`
 - **Start**: `cd server && npm start`
-- Set environment variables in Render dashboard
-
-### Vercel (Frontend)
-
-Configured via `vercel.json`:
-- API routes proxied to the backend
-- Set `VITE_API_URL` in Vercel environment settings
+- Express serves the built frontend in production mode
+- Set `FRONTEND_URL` to your Render service URL
 
 ### Android (Capacitor)
 
