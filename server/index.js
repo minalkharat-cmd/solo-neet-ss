@@ -21,6 +21,7 @@ import { getPersonalAnalytics, getEngagementMetrics } from './analytics.js';
 import { registerSocialRoutes } from './social.js';
 import { registerNotificationRoutes } from './notifications.js';
 import { initFirebaseAdmin, startNotificationScheduler, sendPushToUser } from './pushSender.js';
+import { registerClinicalArenaRoutes } from './clinicalArena.js';
 
 // LLM Provider configuration (ollama or gemini)
 let llmProvider = process.env.LLM_PROVIDER || 'ollama';
@@ -1438,6 +1439,9 @@ app.get('/api/analytics/engagement', async (req, res) => {
 
 // ============ SOCIAL FEATURES ============
 registerSocialRoutes(app, db, authMiddleware);
+
+// ============ CLINICAL ARENA (MedGemma Clinical Reasoning Tutor) ============
+registerClinicalArenaRoutes(app, db, authMiddleware);
 
 // ============ PUSH NOTIFICATIONS ============
 registerNotificationRoutes(app, db, authMiddleware);

@@ -17,6 +17,7 @@ import { StudyGroups } from './components/StudyGroups';
 import { ChallengeModal } from './components/ChallengeModal';
 import { NotificationBell } from './components/NotificationBell';
 import { PremiumModal } from './components/PremiumModal';
+import { ClinicalArena } from './components/ClinicalArena';
 import { setToken, getToken, getMe, saveProgress, logout } from './services/api';
 import './index.css';
 
@@ -561,6 +562,7 @@ function App() {
   const [showChallenge, setShowChallenge] = useState(false);
   const [showDungeonBreak, setShowDungeonBreak] = useState(false);
   const [showPremium, setShowPremium] = useState(false);
+  const [showClinicalArena, setShowClinicalArena] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastDailyRewardClaim, setLastDailyRewardClaim] = useState(() => {
@@ -705,6 +707,7 @@ function App() {
             <>
               <button className="btn-icon nav-btn" onClick={() => setShowLeaderboard(true)} title="Leaderboard">🏆</button>
               <button className="btn-icon nav-btn" onClick={() => setShowDashboard(true)} title="Dashboard">📊</button>
+              <button className="btn-icon nav-btn" onClick={() => setShowClinicalArena(true)} title="Clinical Arena" style={{ background: 'linear-gradient(135deg, #7B68EE, #00D4FF)', borderRadius: '8px', padding: '4px 8px' }}>🏥</button>
               <button className="btn-icon nav-btn" onClick={() => setShowPvP(true)} title="PvP Battles">⚔️</button>
               <button className="btn-icon nav-btn" onClick={() => setShowReviewDashboard(true)} title="Review AI Questions">📋</button>
               <button className="btn-icon nav-btn" onClick={() => setShowAnalytics(true)} title="Analytics Dashboard">📊</button>
@@ -897,6 +900,14 @@ function App() {
         <AchievementNotification
           achievement={pendingAchievements[0]}
           onDismiss={dismissAchievement}
+        />
+      )}
+
+      {showClinicalArena && (
+        <ClinicalArena
+          onClose={() => setShowClinicalArena(false)}
+          addXP={addXP}
+          gameState={gameState}
         />
       )}
 
