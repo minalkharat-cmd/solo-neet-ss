@@ -1,7 +1,9 @@
 // PubMed E-utilities Service
 // Fetches medical literature abstracts from NCBI PubMed
 
-const EUTILS_BASE = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
+import type { PubMedArticle } from './types.js';
+
+const EUTILS_BASE: string = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 
 /**
  * Search PubMed for articles matching a query
@@ -9,8 +11,8 @@ const EUTILS_BASE = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
  * @param {number} limit - Max results to return (default: 10)
  * @returns {Promise<{pmids: string[], count: number}>}
  */
-export async function searchPubMed(query, limit = 10) {
-    const params = new URLSearchParams({
+export async function searchPubMed(query: string, limit: number = 10): Promise<{ pmids: string[]; count: number }> {
+    const params: URLSearchParams = new URLSearchParams({
         db: 'pubmed',
         term: query,
         retmax: limit.toString(),
@@ -20,13 +22,13 @@ export async function searchPubMed(query, limit = 10) {
         ...(process.env.NCBI_EMAIL && { email: process.env.NCBI_EMAIL }),
     });
 
-    const response = await fetch(`${EUTILS_BASE}/esearch.fcgi?${params}`);
+    const response: Response = await fetch(`${EUTILS_BASE}/esearch.fcgi?${params}`);
 
     if (!response.ok) {
         throw new Error(`PubMed search failed: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
 
     return {
         pmids: data.esearchresult?.idlist || [],
@@ -39,10 +41,10 @@ export async function searchPubMed(query, limit = 10) {
  * @param {string[]} pmids - Array of PubMed IDs
  * @returns {Promise<Array<{pmid: string, title: string, abstract: string, authors: string, journal: string, year: string}>>}
  */
-export async function fetchAbstracts(pmids) {
+export async function fetchAbstracts(pmids: string[]): Promise<PubMedArticle[]> {
     if (!pmids.length) return [];
 
-    const params = new URLSearchParams({
+    const params: URLSearchParams = new URLSearchParams({
         db: 'pubmed',
         id: pmids.join(','),
         retmode: 'xml',
@@ -50,32 +52,32 @@ export async function fetchAbstracts(pmids) {
         ...(process.env.NCBI_API_KEY && { api_key: process.env.NCBI_API_KEY }),
     });
 
-    const response = await fetch(`${EUTILS_BASE}/efetch.fcgi?${params}`);
+    const response: Response = await fetch(`${EUTILS_BASE}/efetch.fcgi?${params}`);
 
     if (!response.ok) {
         throw new Error(`PubMed fetch failed: ${response.status}`);
     }
 
-    const xmlText = await response.text();
+    const xmlText: string = await response.text();
     return parseArticlesXML(xmlText);
 }
 
 /**
  * Parse PubMed XML response to extract article data
  */
-function parseArticlesXML(xmlText) {
-    const articles = [];
+function parseArticlesXML(xmlText: string): PubMedArticle[] {
+    const articles: PubMedArticle[] = [];
 
     // Simple regex-based XML parsing (works for PubMed's structure)
-    const articleMatches = xmlText.match(/<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g) || [];
+    const articleMatches: string[] = xmlText.match(/<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g) || [];
 
     for (const articleXml of articleMatches) {
-        const pmid = extractTag(articleXml, 'PMID');
-        const title = extractTag(articleXml, 'ArticleTitle');
-        const abstractText = extractTag(articleXml, 'AbstractText') || extractAllAbstractText(articleXml);
-        const journal = extractTag(articleXml, 'Title');
-        const year = extractTag(articleXml, 'Year') || extractPubDate(articleXml);
-        const authors = extractAuthors(articleXml);
+        const pmid: string = extractTag(articleXml, 'PMID');
+        const title: string = extractTag(articleXml, 'ArticleTitle');
+        const abstractText: string = extractTag(articleXml, 'AbstractText') || extractAllAbstractText(articleXml);
+        const journal: string = extractTag(articleXml, 'Title');
+        const year: string = extractTag(articleXml, 'Year') || extractPubDate(articleXml);
+        const authors: string = extractAuthors(articleXml);
 
         if (pmid && (title || abstractText)) {
             articles.push({
@@ -92,31 +94,31 @@ function parseArticlesXML(xmlText) {
     return articles;
 }
 
-function extractTag(xml, tagName) {
-    const match = xml.match(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'));
+function extractTag(xml: string, tagName: string): string {
+    const match: RegExpMatchArray | null = xml.match(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'));
     return match ? match[1] : '';
 }
 
-function extractAllAbstractText(xml) {
+function extractAllAbstractText(xml: string): string {
     // Handle structured abstracts with multiple AbstractText elements
-    const matches = xml.match(/<AbstractText[^>]*>[\s\S]*?<\/AbstractText>/gi) || [];
-    return matches.map(m => {
-        const label = m.match(/Label="([^"]+)"/)?.[1];
-        const text = m.match(/>([^<]+)</)?.[1] || '';
+    const matches: string[] = xml.match(/<AbstractText[^>]*>[\s\S]*?<\/AbstractText>/gi) || [];
+    return matches.map((m: string) => {
+        const label: string | undefined = m.match(/Label="([^"]+)"/)?.[1];
+        const text: string = m.match(/>([^<]+)</)?.[1] || '';
         return label ? `${label}: ${text}` : text;
     }).join(' ');
 }
 
-function extractPubDate(xml) {
-    const match = xml.match(/<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/);
+function extractPubDate(xml: string): string {
+    const match: RegExpMatchArray | null = xml.match(/<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/);
     return match ? match[1] : '';
 }
 
-function extractAuthors(xml) {
-    const authorMatches = xml.match(/<Author[^>]*>[\s\S]*?<\/Author>/gi) || [];
-    const authors = authorMatches.slice(0, 3).map(a => {
-        const lastName = extractTag(a, 'LastName');
-        const initials = extractTag(a, 'Initials');
+function extractAuthors(xml: string): string {
+    const authorMatches: string[] = xml.match(/<Author[^>]*>[\s\S]*?<\/Author>/gi) || [];
+    const authors: string[] = authorMatches.slice(0, 3).map((a: string) => {
+        const lastName: string = extractTag(a, 'LastName');
+        const initials: string = extractTag(a, 'Initials');
         return `${lastName} ${initials}`.trim();
     });
 
@@ -127,7 +129,7 @@ function extractAuthors(xml) {
     return authors.join(', ');
 }
 
-function cleanText(text) {
+function cleanText(text: string): string {
     if (!text) return '';
     return text
         .replace(/<[^>]+>/g, '') // Remove HTML tags
@@ -138,7 +140,7 @@ function cleanText(text) {
 /**
  * Search and fetch abstracts in one call
  */
-export async function searchAndFetchAbstracts(query, limit = 5) {
+export async function searchAndFetchAbstracts(query: string, limit: number = 5): Promise<{ articles: PubMedArticle[]; query: string; count: number }> {
     const { pmids } = await searchPubMed(query, limit);
 
     if (!pmids.length) {

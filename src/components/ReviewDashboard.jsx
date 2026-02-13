@@ -9,7 +9,7 @@ export function ReviewDashboard({ onClose }) {
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0 });
 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+    const API_URL = import.meta.env.VITE_API_URL || '';
 
     useEffect(() => {
         fetchQuestions();

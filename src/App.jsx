@@ -17,7 +17,9 @@ import { StudyGroups } from './components/StudyGroups';
 import { ChallengeModal } from './components/ChallengeModal';
 import { NotificationBell } from './components/NotificationBell';
 import { PremiumModal } from './components/PremiumModal';
+import { BrainExplorer } from './components/BrainExplorer';
 import { setToken, getToken, getMe, saveProgress, logout } from './services/api';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
 // ============================================
@@ -452,10 +454,12 @@ function App() {
     dismissAchievement,
   } = useGameState();
 
-  // Auth state
+  // Auth state — unified key: 'soloNeetSS_user' (matches api.js)
   const [user, setUser] = useState(() => {
-    const stored = localStorage.getItem('user');
-    return stored ? JSON.parse(stored) : null;
+    try {
+      const stored = localStorage.getItem('soloNeetSS_user') || localStorage.getItem('user');
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
   });
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return !!getToken() || localStorage.getItem('offlineMode') === 'true';
@@ -465,24 +469,38 @@ function App() {
   // Check for OAuth callback on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
+    const authStatus = params.get('auth');
     const userParam = params.get('user');
-    const authFailed = params.get('auth');
+    const legacyToken = params.get('token'); // Support legacy mobile flow
 
-    if (token && userParam) {
-      // OAuth success
-      setToken(token);
-      const userData = JSON.parse(userParam);
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
-      setIsAuthenticated(true);
-      // Clear URL params
+    if (authStatus === 'success' && userParam) {
+      // Cookie-based OAuth success — token is in HTTP-only cookie, user info in URL
+      try {
+        const userData = JSON.parse(decodeURIComponent(userParam));
+        localStorage.setItem('soloNeetSS_user', JSON.stringify(userData));
+        setUser(userData);
+        setIsAuthenticated(true);
+      } catch (e) {
+        console.error('Failed to parse OAuth user data:', e);
+      }
       window.history.replaceState({}, '', window.location.pathname);
-    } else if (authFailed === 'failed') {
+    } else if (legacyToken && userParam) {
+      // Legacy/mobile flow — token passed directly (mobile deep links)
+      try {
+        setToken(legacyToken);
+        const userData = JSON.parse(decodeURIComponent(userParam));
+        localStorage.setItem('soloNeetSS_user', JSON.stringify(userData));
+        setUser(userData);
+        setIsAuthenticated(true);
+      } catch (e) {
+        console.error('Failed to parse OAuth callback:', e);
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (authStatus === 'failed') {
       console.error('OAuth authentication failed');
       window.history.replaceState({}, '', window.location.pathname);
     } else if (getToken()) {
-      // Validate existing token
+      // Validate existing token (Bearer or cookie)
       getMe().then(data => {
         setUser(data.user);
         setIsAuthenticated(true);
@@ -537,7 +555,8 @@ function App() {
 
   const handleLogout = () => {
     logout();
-    localStorage.removeItem('user');
+    localStorage.removeItem('soloNeetSS_user');
+    localStorage.removeItem('user'); // Clean up legacy key
     localStorage.removeItem('offlineMode');
     setUser(null);
     setIsAuthenticated(false);
@@ -561,6 +580,7 @@ function App() {
   const [showChallenge, setShowChallenge] = useState(false);
   const [showDungeonBreak, setShowDungeonBreak] = useState(false);
   const [showPremium, setShowPremium] = useState(false);
+  const [showBrainExplorer, setShowBrainExplorer] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastDailyRewardClaim, setLastDailyRewardClaim] = useState(() => {
@@ -579,7 +599,13 @@ function App() {
 
   const handleEnterDungeon = (subject) => {
     const subjectQuestions = questions[subject.id] || [];
-    const shuffled = [...subjectQuestions].sort(() => Math.random() - 0.5).slice(0, 10);
+    // Fisher-Yates shuffle for unbiased randomization
+    const arr = [...subjectQuestions];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    const shuffled = arr.slice(0, 10);
     setBattleQuestions(shuffled);
     setSelectedSubject(subject);
     setCurrentView('battle');
@@ -709,6 +735,7 @@ function App() {
               <button className="btn-icon nav-btn" onClick={() => setShowReviewDashboard(true)} title="Review AI Questions">📋</button>
               <button className="btn-icon nav-btn" onClick={() => setShowAnalytics(true)} title="Analytics Dashboard">📊</button>
               <button className="btn-icon nav-btn" onClick={() => setShowStudyGroups(true)} title="Study Groups">👥</button>
+              <button className="btn-icon nav-btn" onClick={() => setShowBrainExplorer(true)} title="Brain Atlas">🧠</button>
               <button className="btn-icon nav-btn" onClick={() => setShowChallenge(true)} title="Challenge Friend">⚔️</button>
               <NotificationBell />
             </>
@@ -794,6 +821,8 @@ function App() {
           soundEnabled={soundEnabled}
           onToggleSound={() => setSoundEnabled(!soundEnabled)}
           onClose={() => setShowSettings(false)}
+          user={user}
+          onLogout={handleLogout}
         />
       )}
 
@@ -858,13 +887,15 @@ function App() {
       )}
 
       {showPvP && (
-        <PvPBattle
-          user={user}
-          gameState={gameState}
-          onClose={() => setShowPvP(false)}
-          soundEnabled={soundEnabled}
-          addXP={addXP}
-        />
+        <ErrorBoundary fallbackMessage="PvP Battle encountered an error. Please try again.">
+          <PvPBattle
+            user={user}
+            gameState={gameState}
+            onClose={() => setShowPvP(false)}
+            soundEnabled={soundEnabled}
+            addXP={addXP}
+          />
+        </ErrorBoundary>
       )}
 
       {showReviewDashboard && (
@@ -878,6 +909,16 @@ function App() {
       )}
       {showChallenge && (
         <ChallengeModal onClose={() => setShowChallenge(false)} />
+      )}
+
+      {showBrainExplorer && (
+        <ErrorBoundary fallbackMessage="Brain Explorer encountered an error. Please try again.">
+          <BrainExplorer
+            onClose={() => setShowBrainExplorer(false)}
+            addXP={addXP}
+            soundEnabled={soundEnabled}
+          />
+        </ErrorBoundary>
       )}
 
       {showDungeonBreak && (

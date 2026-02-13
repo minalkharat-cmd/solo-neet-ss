@@ -1,7 +1,10 @@
 // AI-Powered Question Generator
 // Converts PubMed abstracts into high-yield MCQs using Gemini API
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+import logger from './lib/logger.js';
+import type { PubMedArticle, GeneratedQuestion, GenerationResult, GenerationError } from './types.js';
+
+const GEMINI_API_URL: string = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 /**
  * Generate MCQs from a PubMed abstract using Gemini AI
@@ -9,8 +12,8 @@ const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/
  * @param {string} specialty - Medical specialty category
  * @returns {Promise<Array<{question, options, correct, explanation, difficulty, source}>>}
  */
-export async function generateQuestionsFromAbstract(article, specialty = 'general') {
-    const apiKey = process.env.GEMINI_API_KEY;
+export async function generateQuestionsFromAbstract(article: PubMedArticle, specialty: string = 'general'): Promise<GeneratedQuestion[]> {
+    const apiKey: string | undefined = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
         throw new Error('GEMINI_API_KEY not configured. Add it to your .env file.');
@@ -20,9 +23,9 @@ export async function generateQuestionsFromAbstract(article, specialty = 'genera
         throw new Error('Abstract too short to generate meaningful questions');
     }
 
-    const prompt = buildQuestionPrompt(article, specialty);
+    const prompt: string = buildQuestionPrompt(article, specialty);
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    const response: Response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -41,12 +44,12 @@ export async function generateQuestionsFromAbstract(article, specialty = 'genera
     });
 
     if (!response.ok) {
-        const error = await response.text();
+        const error: string = await response.text();
         throw new Error(`Gemini API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const data: any = await response.json();
+    const text: string | undefined = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!text) {
         throw new Error('No response from Gemini API');
@@ -58,7 +61,7 @@ export async function generateQuestionsFromAbstract(article, specialty = 'genera
 /**
  * Build the prompt for MCQ generation
  */
-function buildQuestionPrompt(article, specialty) {
+function buildQuestionPrompt(article: PubMedArticle, specialty: string): string {
     return `You are a medical education expert creating MCQs for super-specialty NEET SS exam preparation.
 
 Based on this PubMed article, generate 2-3 high-yield multiple choice questions:
@@ -98,39 +101,39 @@ Generate the questions now:`;
 /**
  * Parse Gemini response to extract questions
  */
-function parseGeneratedQuestions(text, article) {
+function parseGeneratedQuestions(text: string, article: PubMedArticle): GeneratedQuestion[] {
     // Try to extract JSON from the response
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    const jsonMatch: RegExpMatchArray | null = text.match(/\[[\s\S]*\]/);
 
     if (!jsonMatch) {
-        console.error('Could not find JSON in response:', text);
+        logger.error('Could not find JSON in Gemini response', { responsePreview: text.substring(0, 200) });
         throw new Error('Failed to parse AI response - no valid JSON found');
     }
 
     try {
-        const questions = JSON.parse(jsonMatch[0]);
+        const questions: any[] = JSON.parse(jsonMatch[0]);
 
         // Validate and enhance each question
-        return questions.map((q, index) => {
+        return questions.map((q: any, index: number) => {
             // Validate structure
             if (!q.question || !Array.isArray(q.options) || q.options.length !== 4) {
                 throw new Error(`Invalid question structure at index ${index}`);
             }
 
             // Ensure correct is a valid index
-            const correctIndex = typeof q.correct === 'number' ? q.correct : 0;
+            const correctIndex: number = typeof q.correct === 'number' ? q.correct : 0;
             if (correctIndex < 0 || correctIndex > 3) {
                 q.correct = 0;
             }
 
             // Validate difficulty
-            const validDifficulties = ['easy', 'medium', 'hard'];
+            const validDifficulties: string[] = ['easy', 'medium', 'hard'];
             if (!validDifficulties.includes(q.difficulty)) {
                 q.difficulty = 'medium';
             }
 
             // Set XP based on difficulty
-            const xpMap = { easy: 10, medium: 25, hard: 50 };
+            const xpMap: Record<string, number> = { easy: 10, medium: 25, hard: 50 };
             q.xp = xpMap[q.difficulty];
 
             // Add source metadata
@@ -152,8 +155,8 @@ function parseGeneratedQuestions(text, article) {
 
             return q;
         });
-    } catch (error) {
-        console.error('JSON parse error:', error, 'Text:', jsonMatch[0]);
+    } catch (error: any) {
+        logger.error('JSON parse error in Gemini response', { error: error.message, textPreview: jsonMatch[0].substring(0, 200) });
         throw new Error(`Failed to parse AI response: ${error.message}`);
     }
 }
@@ -161,18 +164,18 @@ function parseGeneratedQuestions(text, article) {
 /**
  * Generate questions from multiple articles
  */
-export async function generateQuestionsFromArticles(articles, specialty = 'general') {
-    const allQuestions = [];
-    const errors = [];
+export async function generateQuestionsFromArticles(articles: PubMedArticle[], specialty: string = 'general'): Promise<GenerationResult> {
+    const allQuestions: GeneratedQuestion[] = [];
+    const errors: GenerationError[] = [];
 
     for (const article of articles) {
         try {
             // Rate limit: 1 request per second for Gemini free tier
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise<void>(resolve => setTimeout(resolve, 1000));
 
-            const questions = await generateQuestionsFromAbstract(article, specialty);
+            const questions: GeneratedQuestion[] = await generateQuestionsFromAbstract(article, specialty);
             allQuestions.push(...questions);
-        } catch (error) {
+        } catch (error: any) {
             errors.push({
                 pmid: article.pmid,
                 title: article.title,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 const fetchWithAuth = async (endpoint, options = {}) => {
     const token = localStorage.getItem('soloNeetSS_token');

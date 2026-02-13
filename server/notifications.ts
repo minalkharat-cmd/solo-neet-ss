@@ -1,35 +1,37 @@
 // Solo NEET SS - Server-Side Push Notification Routes
 
+import type { Express, Request, Response, NextFunction } from 'express';
+import type { DAL } from './types.js';
+
 /**
  * Register notification-related routes
+ * @param {object} dal — Data Access Layer
  */
-export const registerNotificationRoutes = (app, db, authMiddleware) => {
+export const registerNotificationRoutes = (app: Express, dal: DAL, authMiddleware: (req: Request, res: Response, next: NextFunction) => void): void => {
 
     // Store FCM token for a user
-    app.post('/api/notifications/register', authMiddleware, async (req, res) => {
+    app.post('/api/notifications/register', authMiddleware, async (req: Request, res: Response) => {
         const { fcmToken } = req.body;
         if (!fcmToken) return res.status(400).json({ error: 'FCM token required' });
 
-        await db.read();
-        const user = db.data.users.find(u => u.id === req.userId);
+        const user = await dal.users.findById(req.userId);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         // Store FCM token on user
         if (!user.fcmTokens) user.fcmTokens = [];
         if (!user.fcmTokens.includes(fcmToken)) {
-            user.fcmTokens.push(fcmToken);
+            const tokens: string[] = [...user.fcmTokens, fcmToken];
             // Keep max 5 tokens per user (multi-device)
-            if (user.fcmTokens.length > 5) user.fcmTokens = user.fcmTokens.slice(-5);
-            await db.write();
+            const trimmed: string[] = tokens.length > 5 ? tokens.slice(-5) : tokens;
+            await dal.users.update(req.userId, { fcmTokens: trimmed });
         }
 
         res.json({ success: true });
     });
 
     // Get notification preferences
-    app.get('/api/notifications/preferences', authMiddleware, async (req, res) => {
-        await db.read();
-        const user = db.data.users.find(u => u.id === req.userId);
+    app.get('/api/notifications/preferences', authMiddleware, async (req: Request, res: Response) => {
+        const user = await dal.users.findById(req.userId);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         res.json({
@@ -37,26 +39,25 @@ export const registerNotificationRoutes = (app, db, authMiddleware) => {
             dailyReminder: user.notificationPrefs?.dailyReminder ?? true,
             streakReminder: user.notificationPrefs?.streakReminder ?? true,
             challengeNotify: user.notificationPrefs?.challengeNotify ?? true,
-            reminderHour: user.notificationPrefs?.reminderHour ?? 9 // default 9 AM
+            reminderHour: user.notificationPrefs?.reminderHour ?? 9
         });
     });
 
     // Update notification preferences
-    app.put('/api/notifications/preferences', authMiddleware, async (req, res) => {
+    app.put('/api/notifications/preferences', authMiddleware, async (req: Request, res: Response) => {
         const { dailyReminder, streakReminder, challengeNotify, reminderHour } = req.body;
 
-        await db.read();
-        const user = db.data.users.find(u => u.id === req.userId);
+        const user = await dal.users.findById(req.userId);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
-        user.notificationPrefs = {
+        const prefs = {
             dailyReminder: dailyReminder ?? true,
             streakReminder: streakReminder ?? true,
             challengeNotify: challengeNotify ?? true,
             reminderHour: reminderHour ?? 9
         };
-        await db.write();
+        await dal.users.update(req.userId, { notificationPrefs: prefs });
 
-        res.json({ success: true, preferences: user.notificationPrefs });
+        res.json({ success: true, preferences: prefs });
     });
 };

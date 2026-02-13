@@ -1,5 +1,5 @@
 // Solo NEET SS - API Service Layer
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // Token management
 const getToken = () => localStorage.getItem('soloNeetSS_token');
@@ -162,7 +162,7 @@ export const progress = {
         return true;
     },
 
-    // Beacon sync for exit (non-blocking)
+    // Exit sync — uses fetch with keepalive for reliable delivery with auth headers
     saveBeacon(gameState) {
         const token = getToken();
         if (!token) return;
@@ -181,11 +181,18 @@ export const progress = {
             subjectProgress: gameState.subjectProgress || {}
         });
 
-        // Use sendBeacon for reliable exit sync
-        navigator.sendBeacon(
-            `${API_BASE}/api/progress`,
-            new Blob([payload], { type: 'application/json' })
-        );
+        // keepalive: true ensures the request survives page unload (like sendBeacon)
+        // but supports custom headers (unlike sendBeacon)
+        fetch(`${API_BASE}/api/progress`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: payload,
+            keepalive: true,
+            credentials: 'include'
+        }).catch(() => {}); // Silently ignore errors on exit
     }
 };
 

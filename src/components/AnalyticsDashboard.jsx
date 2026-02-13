@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 const fetchAnalytics = async (token) => {
     const res = await fetch(`${API_BASE}/api/analytics/personal`, {

@@ -1,8 +1,9 @@
 services:
   - type: web
-    name: solo-neet-ss-api
+    name: solo-neet-ss
     runtime: node
-    buildCommand: cd server && npm install
+    plan: free
+    buildCommand: npm install && npm run build && cd server && npm install && npm run build
     startCommand: cd server && npm start
     envVars:
       - key: NODE_ENV
@@ -10,7 +11,7 @@ services:
       - key: PORT
         value: 10000
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
       - key: FRONTEND_URL
         sync: false
       - key: GEMINI_API_KEY
